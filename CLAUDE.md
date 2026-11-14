@@ -13,6 +13,11 @@ Read these when a step touches them, not before:
 - `docs/PLAN.md`: build order, time boxes, checkpoints, cut order
 - `docs/DECISIONS.md`: open choices and their defaults. If a step depends on an undecided item, use the default and record that in STATUS.
 - `docs/SUPABASE.md` and `docs/ROBOFLOW.md`: exact setup steps for the humans
+- `docs/RETRIEVAL.md`: rank_item, record_miss, speak() rules (read side)
+- `docs/CHERT.md`: FaceTime agent setup and call rules
+- `docs/TYPESENSE.md`: search layer, exact API syntax, prize criteria
+- `docs/DASHBOARD.md`: GUI and voice accessibility constants, pages, privacy
+- `docs/SPONSORS.md`: prizes, judging, Coder, Gemini, pitch facts
 
 ## Architecture
 

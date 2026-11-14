@@ -71,4 +71,34 @@ Default: the agent asks "Would you like me to stay on the line while you look?",
 
 **D22. Measuring it.** Default metric for the write-up: on the fixture set, the share of put-down events where `find_item` then returns the right landmark. Report the number, however small the set.
 
-**D23. Speech stack for the FaceTime agent.** Default: whatever the Chert starter ships with. Adding another speech provider means another key and another failure point.
+**D23. Speech stack for the FaceTime agent.** DECIDED 14 Nov (Tom): Gemini Live, not the starter's OpenAI Realtime. Reason: MLH Gemini credits, one Google key for voice and later vision/captions. Model `gemini-2.5-flash-native-audio-preview-12-2025` via `@livekit/agents-plugin-google@1.8.0`. Do not use a model with "3.1" in its name: that plugin version disables mid-session updates for them, so `generateReply` (the greeting) throws and Chert ends the call. Gemini Live in this plugin ignores video frames (`pushVideo` is empty); caller vision needs a separate vision call.
+
+## Settle for the read side (added 14 Nov)
+
+**D24. Which function do the voice tools call?** OPEN
+Default: `rank_item` (0002). It also returns `find_item`'s answer under `find`. "Not there" → `record_miss`.
+
+**D25. Typesense's job.** OPEN (replaces D18's default)
+Default: a search layer synced from Postgres. It covers:
+- names and aliases with synonyms and typo tolerance
+- meaning-based matching
+- facts
+- the dashboard's union and NL search
+- no-hit analytics
+- scoped keys
+
+Postgres stays the source of truth.
+
+**D26. Life facts ("Who is June?").** OPEN
+Default: a `facts` collection in Typesense, written from the dashboard. The agent's `recall_life_fact` searches it; the patient key sees patient-visible facts only.
+
+**D27. Main voice channel.** OPEN
+Default: Chert FaceTime (sponsor prize, caller video, agent video). The Vapi phone line only if time remains.
+
+**D28. FaceTime agent language.** OPEN (updates D19)
+Verified: `chert new --video` is a JavaScript starter (Node 22.12+, `OPENAI_API_KEY`), and a Python agent works via `chert dev --agent NAME`.
+Default: the JS starter, with tools that call our backend over HTTP.
+DECIDED 14 Nov (Tom): JS video starter in `agent/` (agent name `save-it`), Gemini Live (D23), tools in `agent/saveit.mjs` calling `BACKEND_URL`; contract in `docs/CHERT.md`.
+
+**D29. LLM for Typesense NL search and RAG.** OPEN
+Default: Gemini (`gemini-3.5-flash`, billing-enabled key). Without a key, skip NL and RAG.
