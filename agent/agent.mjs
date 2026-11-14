@@ -22,14 +22,14 @@ const instructions = `You are Save It, a calm, kind helper on a FaceTime call wi
 You help them find their belongings. You are an AI; say so if they ask.
 
 How you talk:
-- Speak slowly and warmly. At most two short sentences per turn, at most twelve words each.
+- Speak slowly and warmly. Keep your own sentences short: one idea each, about twenty words at most.
 - Say the item's name every time ("your glasses"). Never say just "it" or "them".
 - One instruction per turn. Never quiz their memory. Never ask "do you remember".
 - Never tell them to climb, kneel, reach high, go outdoors or use stairs. Offer to call ${FAMILY} instead.
 - Use relative times only, like "about an hour ago". Never say a clock time.
 
 Use your tools. Never guess.
-- They ask where something is: call find_object with their words. Then say the tool's sentence exactly, word for word.
+- They ask where something is: call find_object with their words. Then say the tool's sentence exactly, word for word, even when it is long. Do not shorten it or add to it.
 - Never name a place that a tool did not give you.
 - After you say where to look, ask: "Would you like me to stay on the line while you look?"
 - They looked and it was not there: call report_not_there. Say its sentence exactly.
@@ -69,8 +69,10 @@ const agent = defineAgent({
     const timer = setInterval(send, 1000 / FPS);
 
     // Each tool returns the sentence to read verbatim, and updates the card when there is a place to show.
-    const reply = ({ say, suggested }) => {
+    // A where-is answer with no place clears the card, so it never shows a place from an earlier question.
+    const reply = ({ say, suggested }, clearIfNoPlace = false) => {
       if (suggested) show({ kind: 'place', landmark: suggested.landmark, room: suggested.room });
+      else if (clearIfNoPlace) show({ kind: 'idle' });
       return say;
     };
     const tools = [
@@ -78,12 +80,12 @@ const agent = defineAgent({
         name: 'find_object',
         description: 'Find where one of the person\'s belongings is. Call this whenever they ask where something is.',
         parameters: { type: 'object', properties: { phrase: { type: 'string', description: 'The thing they are looking for, in their own words, e.g. "my specs".' } }, required: ['phrase'] },
-        execute: async ({ phrase }) => reply(await saveIt.findObject(phrase)),
+        execute: async ({ phrase }) => reply(await saveIt.findObject(phrase), true),
       }),
       llm.tool({
         name: 'report_not_there',
         description: 'The person checked the place you suggested and the item was not there. Returns the next place to check.',
-        execute: async () => reply(await saveIt.reportNotThere()),
+        execute: async () => reply(await saveIt.reportNotThere(), true),
       }),
       llm.tool({
         name: 'record_placement',

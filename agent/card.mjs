@@ -56,6 +56,7 @@ export function cardLines(view) {
     const name = wrap(String(view.landmark).replace(/^the\s+/i, ''));
     return name.length === 1 && view.room ? [name[0], ...wrap(`in ${view.room}`, MAX_CHARS, 1)] : name;
   }
+  if (view?.kind === 'place' && view.room) return wrap(String(view.room).replace(/^the\s+/i, '')); // room only, e.g. carried
   if (view?.kind === 'text' && view.text) return wrap(view.text);
   return ['WHAT CAN I', 'HELP YOU FIND?'];
 }

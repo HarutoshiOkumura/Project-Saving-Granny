@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov 17:36 ET (Tom's Claude Code: merged Haru's steps 00 to 02 into branch `tom/read-side`)
+Last updated: Sat 14 Nov 17:47 ET (Tom's Claude Code: merged Haru's steps 00 to 02 into branch `tom/read-side`; the FaceTime agent reads `/find`)
 
 ## Steps
 
@@ -19,7 +19,7 @@ Last updated: Sat 14 Nov 17:36 ET (Tom's Claude Code: merged Haru's steps 00 to 
 | 07 | Capture page | todo | |
 | 08 | Dashboard | todo | |
 | 09 | Typesense | todo | optional |
-| 10 | FaceTime | stubbed | `agent/` answers on the line from the fake home (`BACKEND_URL` empty); `chert doctor --agent save-it` all pass; 8/8 `npm test`. Next: point it at `GET /find` (never Supabase) and test with `supabase/dummy_data.sql`. Live call test: pending. Caller video still blocked on D4 |
+| 10 | FaceTime | doing | With `BACKEND_URL` set, `agent/` reads step 02's `GET /find?channel=facetime` (`{sentence, result}`, verbatim) and points the card from `result`; checked live through the local backend against Supabase. "Not there" and "I put it..." save nothing until `/miss` (0003) and `/told` exist. `chert doctor --agent save-it` all pass; 10/10 `npm test`. Live FaceTime call: pending. Caller video still blocked on D4 |
 | 11 | Harden and record | todo | |
 
 State is one of: todo, doing, done, stubbed (works with fake data), blocked (say on what).
@@ -33,7 +33,8 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Stubs and fakes in the code right now
 
-- `agent/fake-home.mjs` + `speakStub()` in `agent/saveit.mjs`: fake `rank_item`/`speak()` while `BACKEND_URL` in `agent/.env.local` is empty. Setting it switches to the backend; contract in docs/CHERT.md.
+- `agent/fake-home.mjs` + `speakStub()` in `agent/saveit.mjs`: the fake home, used only while `BACKEND_URL` in `agent/.env.local` is empty.
+- `agent/saveit.mjs` backend mode: `report_not_there` and `record_placement` save nothing yet (no `/miss`, `/told`): "not there" offers the usual place once, then family. Contract in docs/CHERT.md.
 
 ## Defaults taken from DECISIONS.md
 

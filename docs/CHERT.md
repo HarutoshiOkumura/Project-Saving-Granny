@@ -20,30 +20,34 @@ Built from `chert new agent --video --agent save-it` (CLI 0.1.0-beta.20). Line: 
 | File | Does |
 |---|---|
 | `agent.mjs` | Gemini Live voice (D23), Save It persona and voice rules, the five tools, greets on `bridge_ready` |
-| `saveit.mjs` | Tools' read side. `BACKEND_URL` set → HTTP (contract below); empty → `fake-home.mjs`. Keeps per-call `item` and `suggested` place |
+| `saveit.mjs` | Tools' read side. `BACKEND_URL` set → HTTP (contract below); empty → `fake-home.mjs`. Keeps per-call `item`, `suggested` place, last `result` and `query_id` |
 | `fake-home.mjs` | Stand-in home from `supabase/seed.example.sql`, returns `rank_item`-shaped JSON (same band and search-order rules) |
 | `card.mjs` | Agent video: 1280×720 card, place name ≤ 2 × 22 chars, 56 px white on dark panel, marker pulses 1 Hz while speaking |
 | `test/` | `npm test`: offline, no paid calls |
 
-Run (two terminals, from `agent/`):
+Run (two terminals, from `agent/`; a third for the backend when `BACKEND_URL=http://localhost:8000`):
+0. Backend, from the repo root: `uv run uvicorn app.main:app --port 8000`. If it is down, every answer is "I'm not sure. Let me check with June."
 1. `npm install && npm start` (waits for jobs; free until a call)
 2. `npx @trychert/facetime@0.1.0-beta.20 dev --agent save-it` → wait for "is in a waiting room", then FaceTime the line.
 3. Stop: Ctrl+C on `chert dev` first (frees the line), then the agent. After code changes restart both.
 
 `agent/.env.local` (gitignored, mode 600): `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `GOOGLE_API_KEY`, `AGENT_NAME=save-it`, `BACKEND_URL`, `APP_TOKEN`, `FAMILY_NAME`. No `OPENAI_API_KEY`: `chert doctor`'s OpenAI warning is expected.
 
-### Agent ↔ backend contract (step 02 implements; proposed by Tom)
+### Agent ↔ backend contract
 All JSON; `Authorization: Bearer $APP_TOKEN` when set; the agent times out after 3 s and says "I'm not sure. Let me check with June."
 
-| Request | Response | Backend does |
-|---|---|---|
-| `GET /find?item=<words>` | `{say, rank, suggested?}` | `rank_item` → `speak()` |
-| `POST /miss {item, landmark_id}` | `{say, rank, suggested?}` | `record_miss`, re-rank, next place |
-| `POST /told {object_phrase, place_phrase, kind}` | `{say}` | `log_sighting` with `told` + `facetime_caller` (`kind`: `placed` or `found`) |
-| `GET /facts?q=<question>` | `{say}` | Typesense `facts`, patient-visible only |
-| `POST /alert {reason}` | `{say?}` | dashboard alert |
+| Request | Response | Backend does | Built? |
+|---|---|---|---|
+| `GET /find?item=<words>&channel=facetime` | `{sentence, result}` | `ask_item` → `speak()` (`app/ask.py`); `result` is `FindResult` | yes (step 02) |
+| same, once `/find` ranks | `{say, rank, suggested?}` | `rank_item` → `speak()` | no (needs 0003) |
+| `POST /miss {item, landmark_id}` | `{say, rank, suggested?}` | `record_miss`, re-rank, next place | no |
+| `POST /told {object_phrase, place_phrase, kind}` | `{say}` | `log_sighting` with `told` + `facetime_caller` (`kind`: `placed` or `found`) | no |
+| `GET /facts?q=<question>` | `{say}` | Typesense `facts`, patient-visible only | no |
+| `POST /alert {reason}` | `{say?}` | dashboard alert | no |
 
-`rank` is `rank_item`'s JSON. `suggested` is `{landmark_id, room, landmark}`: the place `say` tells them to check first (the card shows it; `/miss` sends its id). If absent the agent uses `rank.search_order[0]`.
+The agent reads `sentence` (or `say`) verbatim. The card shows `suggested`: from `/find`'s `result`, the place it names (`seen`), the room (`carried`: where they went, else where they had it), or the usual place (`never_seen`, `not_there_anymore`); with `rank`, `suggested` or `rank.search_order[0]` (`{landmark_id, room, landmark}`; `/miss` sends its id). An answer with no place clears the card.
+
+While an endpoint is missing (404) the tool answers without it and promises nothing: "not there" offers the usual place once (unless they just checked it), then "Shall I ask June to help?"; `record_placement` says "Okay, thank you for telling me." (nothing is saved); facts and alerts give the fallback.
 
 ## Fastest path: the JavaScript video starter
 1. `chert new pal --video` creates `agent.mjs`, `face.mjs`, `greet.mjs`, `chert-rooms.mjs`, `package.json`, its own `CLAUDE.md`/`AGENTS.md`, and `.env.local` with the agent name filled in. Read its `CLAUDE.md` when working there. The video starter publishes a drawn face as its camera.
