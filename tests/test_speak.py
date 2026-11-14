@@ -256,9 +256,28 @@ def test_never_seen_usual_room_only() -> None:
 # ---------- unknown_item ----------
 
 
-def test_unknown_item() -> None:
+def test_unknown_item_names_the_thing_heard() -> None:
     answer = FindResult.model_validate({"state": "unknown_item", "heard": "my wallet"})
-    assert speak(answer, NOW) == "I'm sorry, which thing are you looking for?"
+    assert speak(answer, NOW) == "I don't know your wallet yet, but your family can teach me."
+
+
+@pytest.mark.parametrize(
+    ("heard", "sentence"),
+    [
+        ("where is my phone", "I don't know your phone yet, but your family can teach me."),
+        ("reading lamp", "I don't know your reading lamp yet, but your family can teach me."),
+        ("the thing", "I'm sorry, which thing are you looking for?"),
+        ("um", "I'm sorry, which thing are you looking for?"),
+        (
+            "the thing my daughter gave me for christmas",
+            "I'm sorry, which thing are you looking for?",
+        ),
+        (None, "I'm sorry, which thing are you looking for?"),
+    ],
+)
+def test_unknown_item_asks_when_the_thing_is_unclear(heard: str | None, sentence: str) -> None:
+    answer = FindResult.model_validate({"state": "unknown_item", "heard": heard})
+    assert speak(answer, NOW) == sentence
 
 
 # ---------- time words ----------

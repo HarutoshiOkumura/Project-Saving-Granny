@@ -52,7 +52,7 @@ Examples use glasses (plural) seen on the kitchen counter forty minutes ago.
 - `not_there_anymore` with no usable `usual`: "Your glasses aren't on the kitchen counter anymore, and I haven't seen where they went."
 - `never_seen` with `usual`: "I haven't seen your glasses yet, but they usually live on the table beside your bed."
 - `never_seen` without `usual`: "I haven't seen your glasses yet, so let me check with your family."
-- `unknown_item`: "I'm sorry, which thing are you looking for?"
+- `unknown_item`: "I don't know your wallet yet, but your family can teach me." Name the thing from `heard` after dropping question and filler words ("where is my wallet" -> "wallet"). If that leaves anything but one or two words, we did not catch it: "I'm sorry, which thing are you looking for?" (Changed 14 Nov after a test call: the question alone sounded as if Save It had not listened.)
 - Any error, timeout or missing data: "I'm not sure, let me check with your family."
 
 Never offer a `usual` place that is the same as the place just ruled out.
