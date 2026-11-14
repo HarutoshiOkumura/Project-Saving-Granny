@@ -117,4 +117,5 @@ sb.rpc("record_outcome", {"p_query": answer["query_id"], "p_found": True}).execu
 - **Schema changes** go in the next numbered migration (`0003_*.sql`), tested on scratch Postgres first. `0001` and `0002` are applied and frozen.
 - **Vector width** is 768 and cannot change once rows exist.
 - **Clock.** Always pass the frame's capture time to `log_sighting`. `minutes_ago` is computed from it. Sending the same capture time twice does not confirm a sighting.
+- **Dummy data:** `supabase/dummy_data.sql` fills the log with one item in each answer state for building the read path. Write more only through `log_sighting` and `mark_absent`; the rules are in its header.
 - **Reset between rehearsals:** `delete from queries; delete from sightings; delete from observations;` leaves the home, rooms, landmarks and items in place.

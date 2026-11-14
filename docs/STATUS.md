@@ -18,7 +18,7 @@ Last updated: Sat 14 Nov, 16:46 EST
 | 07 | Capture page | todo | |
 | 08 | Dashboard | todo | |
 | 09 | Typesense | todo | optional |
-| 10 | FaceTime | todo | optional; blocked on D4 |
+| 10 | FaceTime | todo | optional; blocked on D4. The agent calls the backend's `GET /find` (step 02), never Supabase. Build against `supabase/dummy_data.sql` |
 | 11 | Harden and record | todo | |
 
 State is one of: todo, doing, done, stubbed (works with fake data), blocked (say on what).
@@ -54,6 +54,7 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 - `desk` (bedroom) and `table` (kitchen) are similar furniture; the room separates them, but watch for mix-ups in the step 04 bake-off.
 - D4: pick a cut-off time for Chert's answer; FaceTime is 4 to 6 hours.
 - D15: keep "did you find it?"? It needs a second Vapi tool; the database side (`ask_item`, `record_outcome`) is ready.
+- Photo idea (14 Nov): keep the item's last good view instead of its best-confidence one, and a wider "context" crop that shows the landmark. Decide in step 05/06 on real fixture crops. Full frames stay out (hard rule).
 - `package.json`, `package-lock.json` and `node_modules/` (`@supabase/server`) appeared in the repo root at 15:36. The app is Python; delete them unless someone needs them.
 
 ## Things that differ from the docs or from CLAUDE.md

@@ -54,6 +54,7 @@ tests/                   pytest; tests/fixtures/frames/ holds staged frames
 supabase/migrations/     0001_save_it_memory.sql, 0002_lock_rls_auto_enable.sql (applied; frozen)
 supabase/tests/          test_memory.sql (scratch database only)
 supabase/seed.sql        the demo home as seeded on Supabase (template: seed.example.sql)
+supabase/dummy_data.sql  sightings in each answer state, for building the read path before the camera works
 ```
 
 ## Commands
@@ -116,6 +117,7 @@ The model may only answer with names from the lists (use JSON-schema enums built
 - **Never write anything for a room with `capture_allowed = false`.** If perception says the room is one, drop the frame: no crop, no row.
 - **Never commit secrets.** Keys live in `.env` (gitignored). The Supabase secret key (`SUPABASE_SECRET_KEY`, `sb_secret_...`, which replaces the legacy service-role key) is backend-only and must never appear in `app/web/`.
 - **Never run `supabase/tests/test_memory.sql` against the Supabase project.** It needs an empty database and inserts fixed ids.
+- **Never insert into `sightings` directly, even for dummy data.** Load `supabase/dummy_data.sql`, or call `log_sighting` twice per stay with different `p_seen_at`; one call stays tentative and never answers. Details: "Dummy data" in `.claude/rules/memory-db.md`.
 - **Never edit an applied migration.** `0001` and `0002` are applied to Supabase. Add the next numbered file (`0003_*.sql`), and re-run the database tests on scratch Postgres first.
 - **Never say "HIPAA compliant"** in code, copy or docs. We are not a covered entity; we say "built with HIPAA-style safeguards".
 - **Do not guess third-party request or response shapes.** Check the linked doc first (see External services). If the doc and this file disagree, the doc wins; note it in STATUS.
