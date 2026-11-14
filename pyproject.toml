@@ -21,6 +21,10 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.isort]
+# The repo's supabase/ folder holds SQL; without this, ruff sorts the supabase package as ours.
+known-third-party = ["supabase"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

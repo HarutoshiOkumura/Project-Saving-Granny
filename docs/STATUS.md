@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov, 17:18 EST
+Last updated: Sat 14 Nov, 17:30 EST
 
 ## Steps
 
@@ -10,8 +10,8 @@ Last updated: Sat 14 Nov, 17:18 EST
 |---|---|---|---|
 | 00 | Scaffold | done | uv project (Python 3.12.15, `uv.lock` committed), ruff, package layout, `app/config.py` (`get_settings()`), `GET /health`, 10 tests. Left for humans: D5 and D6 (below) |
 | 01 | Supabase | done | `0001` (8 fixes) and `0002` applied; 75/75 checks on scratch (82/82 with Supabase roles); home seeded; private `crops` bucket; smoke test and API key checks pass; `ask_item` median 98 ms over HTTPS. Left: MCP read-only (below) |
-| 02 | Find API and speak() | todo | Call `ask_item`; keys per state are in `CLAUDE.md` |
-| 03 | Phone voice | todo | |
+| 02 | Find API and speak() | done | `GET /find?item=...&channel=web` -> `app.ask.ask()` -> `db.ask_item` + `speak()`; 80 new tests (90 total). Live on Supabase: "my specs" -> "I last saw your glasses on the kitchen counter about forty minutes ago." 20 calls: median 50 ms, worst 114 ms; first call after a restart 115 to 160 ms (one 865 ms outlier, likely cold DNS). Dead database: fallback at 2.0 s; bad hostname: 46 ms. Smoke rows deleted |
+| 03 | Phone voice | todo | Call `app.ask.ask(item, "phone")`, not `db.ask_item` + `speak()`: the 2 s timeout, fallback and log line are already there. `/find` has no auth yet; once the tunnel is up anyone can query it, so add a token check then |
 | 04 | Detector bake-off | todo | |
 | 05 | Perception module | todo | |
 | 06 | Ingest worker | todo | Catch `22023` from `log_sighting` (room and landmark disagree) and skip the frame |
@@ -25,7 +25,7 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Checkpoints
 
-- CP1 phone call answers from seeded data: not yet (the database half works: `ask_item` answers over the REST API)
+- CP1 phone call answers from seeded data: not yet (the backend half works: `GET /find` answers from Supabase)
 - CP2 detector chosen: not yet
 - CP3 replayed walk gives three correct answers: not yet
 - CP4 live from the lanyard phone: not yet
@@ -61,6 +61,9 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Things that differ from the docs or from CLAUDE.md
 
+- New modules not in the original layout: `app/ask.py` (one question: database, `speak()`, fallback, log line; shared by `/find` and the voice tools) and `app/memory/schema.py` (`FindResult`, `Place`). Added to the layout in `CLAUDE.md`.
+- `speak()` choices where the voice rules are silent: `usual` has no relation, so it is always "on" its landmark (as in the template); a missing `confident` counts as not confident; 58 and 59 minutes say "fifty-five" to stay in the 10 to 59 band. Change the rules file to change these.
+- Ruff treats the repo's `supabase/` SQL folder as a first-party package, so `pyproject.toml` marks `supabase` as third-party for import sorting.
 - Settings: read them with `app.config.get_settings()`, never at import time. Empty values in `.env` count as unset. URL fields drop a trailing slash. Tests use only the fakes in `tests/conftest.py`, never `.env`.
 - Ruff 0.17 also formats Python code blocks in Markdown. I fixed two snippets in `docs/ROBOFLOW.md` and `docs/SUPABASE.md` so `ruff format --check .` is clean.
 - uv on this machine is set to manual Python downloads; run `uv python install 3.12` once before `uv sync`.

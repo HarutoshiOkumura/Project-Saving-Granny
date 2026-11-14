@@ -40,7 +40,9 @@ Two rules shape everything:
 app/main.py              FastAPI app and routes only
 app/config.py            settings from environment (pydantic-settings)
 app/memory/db.py         the ONLY module that talks to Supabase
+app/memory/schema.py     Pydantic models for what the memory functions return (FindResult, Place)
 app/speak.py             find_item JSON -> one spoken sentence (pure, unit-tested)
+app/ask.py               one question: ask_item, speak(), 2 s timeout, fallback, log line (for /find and voice)
 app/voice/vapi.py        Vapi tool webhook
 app/perception/schema.py Pydantic models for the perception result
 app/perception/detector.py  Roboflow calls
