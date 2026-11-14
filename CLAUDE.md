@@ -24,8 +24,8 @@ phone camera page --JPEG every 1-2 s--> POST /frames
                                    |-- Claude Haiku: room, landmark, relation, in_hand as strict JSON
 
 READ PATH (fast, must never fail)
-caller -> Vapi phone number -> POST /vapi/tool -> find_item() -> speak() -> one sentence
-caller -> FaceTime -> Chert -> LiveKit agent -> find_item() -> speak() + last-seen photo
+caller -> Vapi phone number -> POST /vapi/tool -> ask_item() -> speak() -> one sentence
+caller -> FaceTime -> Chert -> LiveKit agent -> ask_item() -> speak() + last-seen photo
 family -> GET /dashboard -> GET /api/timeline
 ```
 
@@ -51,9 +51,9 @@ app/web/                 capture.html, dashboard.html (static, no build step)
 agent/                   LiveKit agent for the Chert FaceTime line (separate process)
 scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py
 tests/                   pytest; tests/fixtures/frames/ holds staged frames
-supabase/migrations/     0001_save_it_memory.sql (tested; do not edit once applied)
+supabase/migrations/     0001_save_it_memory.sql, 0002_lock_rls_auto_enable.sql (applied; frozen)
 supabase/tests/          test_memory.sql (scratch database only)
-supabase/seed.example.sql   demo home: rooms, landmarks, items
+supabase/seed.sql        the demo home as seeded on Supabase (template: seed.example.sql)
 ```
 
 ## Commands
@@ -65,8 +65,10 @@ uv run pytest -q                                     # unit tests
 uv run ruff check . && uv run ruff format .          # lint and format
 # database tests: scratch Postgres only, never the Supabase project
 docker run --name saveit-pg -e POSTGRES_PASSWORD=pw -p 54329:5432 -d pgvector/pgvector:pg16
-psql postgresql://postgres:pw@localhost:54329/postgres -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/0001_save_it_memory.sql -f supabase/tests/test_memory.sql
+P=postgresql://postgres:pw@localhost:54329          # or: docker start saveit-pg
+psql $P/postgres -qc "drop database if exists saveit_test" -c "create database saveit_test"
+psql $P/saveit_test -v ON_ERROR_STOP=1 -q -f supabase/migrations/0001_save_it_memory.sql \
+  -f supabase/migrations/0002_lock_rls_auto_enable.sql -f supabase/tests/test_memory.sql
 ```
 
 ## The memory contract
@@ -76,15 +78,21 @@ Call these through `app/memory/db.py` with `supabase.rpc(name, params)`. Paramet
 | Function | Use | Returns |
 |---|---|---|
 | `perception_context(p_home, p_room)` | Before the vision model looks: allowed rooms, landmarks, items, current beliefs | jsonb |
-| `log_sighting(p_home, p_item, p_label, p_room, p_landmark, p_relation, p_in_hand, p_seen_at, ...)` | One detection. Merges frames into a stay, applies the two-frame rule, keeps one active row per item | sighting id, or null for a no-capture room |
-| `mark_absent(p_home, p_landmark, p_seen_at, p_visible)` | A landmark was clearly in view; `p_visible` lists item ids seen on it | count flipped to `contradicted` |
-| `find_item(p_home, p_query)` | The voice tools | jsonb with `state` |
-| `record_outcome(p_query, p_found)` | After "did you find it?" | void |
+| `log_sighting(p_home, p_item, p_label, p_room, p_landmark, p_relation, p_in_hand, p_seen_at, ...)` | One detection. Merges frames into a stay, applies the two-frame rule (a repeated capture time is not a second frame), keeps one active row per item. The landmark decides the room; raises `22023` if `p_room` disagrees or either is not in this home | sighting id, or null when nothing may be stored (no-capture room, or a camera frame with no room) |
+| `mark_absent(p_home, p_landmark, p_seen_at, p_visible, p_needed, p_min_gap)` | A landmark was clearly in view; `p_visible` lists item ids seen on it. An empty look counts only if `p_min_gap` (30 s) after the last counted one | count flipped to `contradicted` |
+| `ask_item(p_home, p_query, p_channel)` | The voice tools. Answers like `find_item` and logs the question in the same call. `p_channel`: `phone`, `facetime`, `web` | `find_item` jsonb plus `query_id` |
+| `find_item(p_home, p_query)` | Read-only answer that logs nothing (dashboard, scripts, debugging) | jsonb with `state` |
+| `record_outcome(p_query, p_found)` | After "did you find it?", with the `query_id` from `ask_item`. `false` retires that answer | void |
 | `match_room(p_home, p_embedding, p_k)`, `match_item(p_home, p_category, p_embedding)` | Optional embedding lookups | rows, best first |
 
-`find_item` states: `seen`, `carried`, `not_there_anymore`, `never_seen`, `unknown_item`. Other keys: `item`, `plural`, `room`, `landmark`, `relation`, `minutes_ago`, `confident`, `photo`, `previous`, `usual`, `wearer_went_to`, `possible_newer_glimpse`.
+`find_item` states and their keys:
 
-Sighting statuses: `tentative` (one frame) -> `active` (two agreeing frames) -> `superseded` (item seen elsewhere) or `contradicted` (landmark seen empty 3 times, or the person said it was not there).
+- `seen`, `carried`, `not_there_anymore`: `item`, `plural`, `sighting_id`, `room`, `landmark`, `relation`, `address`, `minutes_ago`, `last_seen_at` (UTC, ISO 8601 ending in `Z`), `timezone` (the home's IANA zone), `confident`, `photo`, `previous`, `usual`, `wearer_went_to`, `possible_newer_glimpse`.
+- `never_seen`: `item`, `plural`, `usual`, `timezone`, `possible_glimpse`.
+- `unknown_item`: `heard`.
+- `ask_item` adds `query_id` to every state.
+
+Sighting statuses: `tentative` (one frame) -> `active` (two agreeing frames) -> `superseded` (item seen elsewhere) or `contradicted` (landmark seen empty 3 times at least 30 s apart, or the person said it was not there).
 
 Details and edge cases load from `.claude/rules/memory-db.md` when you open database files.
 
@@ -106,9 +114,9 @@ The model may only answer with names from the lists (use JSON-schema enums built
 - **Never upload images of a real home or real person to Roboflow.** The workspace is on the Research plan, so everything in it is public. Staged photos of our own objects only.
 - **Never store a full frame.** Store a tight crop of the item, in the private `crops` bucket, and sign URLs at read time.
 - **Never write anything for a room with `capture_allowed = false`.** If perception says the room is one, drop the frame: no crop, no row.
-- **Never commit secrets.** Keys live in `.env` (gitignored). The Supabase service-role key is backend-only and must never appear in `app/web/`.
+- **Never commit secrets.** Keys live in `.env` (gitignored). The Supabase secret key (`SUPABASE_SECRET_KEY`, `sb_secret_...`, which replaces the legacy service-role key) is backend-only and must never appear in `app/web/`.
 - **Never run `supabase/tests/test_memory.sql` against the Supabase project.** It needs an empty database and inserts fixed ids.
-- **Never edit `0001_save_it_memory.sql` after it is applied.** Add `0002_*.sql`, and re-run the database tests on scratch Postgres first.
+- **Never edit an applied migration.** `0001` and `0002` are applied to Supabase. Add the next numbered file (`0003_*.sql`), and re-run the database tests on scratch Postgres first.
 - **Never say "HIPAA compliant"** in code, copy or docs. We are not a covered entity; we say "built with HIPAA-style safeguards".
 - **Do not guess third-party request or response shapes.** Check the linked doc first (see External services). If the doc and this file disagree, the doc wins; note it in STATUS.
 

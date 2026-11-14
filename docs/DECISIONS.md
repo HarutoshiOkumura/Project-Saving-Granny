@@ -7,10 +7,10 @@ Status key: OPEN (using default), DECIDED (write the choice and who chose).
 ## Settle in the first hour
 
 **D1. Where is the "home" for the demo?** OPEN
-A hackathon hall has no rooms, and every corner looks alike. Options: (a) film in a teammate's apartment or dorm and judge from the video plus a live call; (b) stage two or three tables as "rooms" with very different props (a lamp and a pillow; a kettle and a toaster; coat hooks). Default: both. Film the real walk for the video; stage two tables for live judging. The names in `supabase/seed.example.sql` must match whatever you stage.
+A hackathon hall has no rooms, and every corner looks alike. Options: (a) film in a teammate's apartment or dorm and judge from the video plus a live call; (b) stage two or three tables as "rooms" with very different props (a lamp and a pillow; a kettle and a toaster; coat hooks). Default: both. Film the real walk for the video; stage two tables for live judging. The names in `supabase/seed.sql` (seeded on Supabase in step 01) must match whatever you stage.
 
-**D2. Which items and landmarks, exactly?** OPEN
-Default: 3 rooms, 6 landmarks, 6 items as in the seed file, but demo only glasses and keys. Fewer, more distinct items beat a long list. Every name here becomes an allowed answer for the vision model.
+**D2. Which items and landmarks, exactly?** DECIDED (the team, 14 Nov, step 01)
+Rooms: bedroom, kitchen, hallway, bathroom (no capture). Landmarks: bedroom nightstand, dresser, desk; kitchen counter, table; hallway key hook, shoe shelf. Items: glasses, keys, and `bag` (the FRANZI Milano green bag; aliases "green bag", "handbag", "purse"). The bag has no usual place yet. Seeded from `supabase/seed.sql`. Fewer, more distinct items beat a long list. Every name here becomes an allowed answer for the vision model.
 
 **D3. Which detector?** OPEN, decided by the step 04 bake-off
 Candidates: YOLO-World zero-shot, SAM 3 text prompts, a Roboflow Instant or RF-DETR model trained on the demo items, or the language model alone. Pass rule is CP2 in `PLAN.md`. Default if nobody runs the bake-off: language model alone for placement, trained Roboflow model for boxes and crops.
