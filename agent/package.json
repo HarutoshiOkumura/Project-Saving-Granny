@@ -6,7 +6,7 @@
   "engines": { "node": "^22.23.2 || ^24.0.0 || ^26.0.0" },
   "scripts": {
     "start": "node --env-file=.env.local agent.mjs start",
-    "check": "node --check chert-rooms.mjs && node --check agent.mjs && node --check card.mjs && node --check greet.mjs && node --check saveit.mjs && node --check fake-home.mjs",
+    "check": "node --check env.mjs && node --check chert-rooms.mjs && node --check agent.mjs && node --check card.mjs && node --check greet.mjs && node --check saveit.mjs && node --check fake-home.mjs",
     "test": "node --test test/",
     "help": "node agent.mjs --help"
   },

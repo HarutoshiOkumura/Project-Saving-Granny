@@ -31,6 +31,8 @@ Run (two terminals, from `agent/`; a third for the backend when `BACKEND_URL=htt
 2. `npx @trychert/facetime@0.1.0-beta.20 dev --agent save-it` → wait for "is in a waiting room", then FaceTime the line.
 3. Stop: Ctrl+C on `chert dev` first (frees the line), then the agent. After code changes restart both.
 
+`npm start` must log `"agentName":"save-it"`; otherwise `chert dev` declines every call. VS Code's `python.terminal.useEnvFile` loads the repo's `.env` into every terminal and `node --env-file` never overrides a variable that is already set, so `agent/env.mjs` (imported first) applies `agent/.env.local` over the terminal's values and drops `SUPABASE_*` and `DATABASE_URL`. Change agent settings in `agent/.env.local`, not in the shell.
+
 `agent/.env.local` (gitignored, mode 600): `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `GOOGLE_API_KEY`, `AGENT_NAME=save-it`, `BACKEND_URL`, `APP_TOKEN`, `FAMILY_NAME`. No `OPENAI_API_KEY`: `chert doctor`'s OpenAI warning is expected.
 
 ### Agent ↔ backend contract

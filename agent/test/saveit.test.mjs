@@ -1,7 +1,11 @@
 // Offline tests: no network, no paid services (CLAUDE.md). Run with `npm test`.
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, test } from 'node:test';
 import { cardLines, renderCard, HEIGHT, WIDTH, wrap } from '../card.mjs';
+import { applyEnvFile } from '../env.mjs';
 import { fakeRankItem, resetFakeHome, resolveItem } from '../fake-home.mjs';
 import { ago, createSaveIt, placeOf, speakStub } from '../saveit.mjs';
 
@@ -143,6 +147,22 @@ test('placeOf: where the card points for each step 02 state', () => {
   assert.equal(placeOf({ state: 'not_there_anymore', usual: null }), null);
   assert.equal(placeOf({ state: 'unknown_item', heard: 'dentures' }), null);
   assert.equal(placeOf(null), null);
+});
+
+test('env: .env.local wins over the terminal (VS Code injects the repo .env), and database keys are dropped', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'saveit-env-'));
+  try {
+    const file = join(dir, '.env.local');
+    writeFileSync(file, 'AGENT_NAME=save-it\nBACKEND_URL=http://localhost:8000\n');
+    const env = applyEnvFile(file, { AGENT_NAME: 'my-agent', SUPABASE_SECRET_KEY: 'fake', SUPABASE_URL: 'https://fake.test', DATABASE_URL: 'postgres://fake', PATH: '/bin' });
+    assert.equal(env.AGENT_NAME, 'save-it');
+    assert.equal(env.BACKEND_URL, 'http://localhost:8000');
+    assert.equal(env.PATH, '/bin');
+    for (const key of ['SUPABASE_SECRET_KEY', 'SUPABASE_URL', 'DATABASE_URL']) assert.equal(key in env, false, key);
+    assert.equal(applyEnvFile(join(dir, 'missing'), { A: '1' }).A, '1'); // no .env.local: nothing breaks
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('relative times only', () => {

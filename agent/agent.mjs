@@ -2,6 +2,7 @@
 // Voice: Gemini Live (speech in, speech out). Answers: saveit.mjs (backend /find, or the fake home).
 // Video: card.mjs shows where to look. Rules from docs/CHERT.md, docs/RETRIEVAL.md and docs/DASHBOARD.md.
 
+import './env.mjs'; // first: .env.local wins over the terminal's variables (VS Code injects the repo's .env)
 import { fileURLToPath } from 'node:url';
 import { AutoSubscribe, defineAgent, llm, voice } from '@livekit/agents';
 import * as google from '@livekit/agents-plugin-google';
