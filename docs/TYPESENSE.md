@@ -131,7 +131,8 @@ Checked against the Typesense 30.2 docs and the `typesense` Python client 2.1.1 
      ```python
      client.multi_search.perform(
          {"searches": [{"collection": "facts", "query_by": "embedding", "exclude_fields": "embedding"}]},
-         {"q": question, "conversation": True, "conversation_model_id": "rag"})
+         {"q": question, "conversation": True, "conversation_model_id": "rag"},
+     )
      ```
      - Read the answer from `resp["conversation"]["answer"]`.
      - Pass `resp["conversation"]["conversation_id"]` back for follow-ups.
