@@ -2,13 +2,13 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov, 16:46 EST
+Last updated: Sat 14 Nov, 17:07 EST
 
 ## Steps
 
 | # | Step | State | Notes |
 |---|---|---|---|
-| 00 | Scaffold | doing | Done: `.gitignore`, `.env.example`, `.env` (Supabase only), `.mcp.json` (Supabase MCP), `.claude/` commands and rules. Left: `pyproject.toml`, app skeleton, tests |
+| 00 | Scaffold | done | uv project (Python 3.12.15, `uv.lock` committed), ruff, package layout, `app/config.py` (`get_settings()`), `GET /health`, 10 tests. Left for humans: D5 and D6 (below) |
 | 01 | Supabase | done | `0001` (8 fixes) and `0002` applied; 75/75 checks on scratch (82/82 with Supabase roles); home seeded; private `crops` bucket; smoke test and API key checks pass; `ask_item` median 98 ms over HTTPS. Left: MCP read-only (below) |
 | 02 | Find API and speak() | todo | Call `ask_item`; keys per state are in `CLAUDE.md` |
 | 03 | Phone voice | todo | |
@@ -48,6 +48,8 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Open questions for the humans
 
+- D5: decide where the backend runs, get its public HTTPS address and put it in `PUBLIC_BASE_URL` (empty now).
+- D6: make a Coder workspace from a shared template and take a screenshot.
 - After step 01: make the Supabase MCP read-only by adding `&read_only=true` to the URL in `.mcp.json`.
 - D1: where the demo home is staged. Names now live in `supabase/seed.sql`; change them there if the staging changes.
 - Where does the bag usually live? One SQL update sets `items.home_landmark_id`.
@@ -59,6 +61,9 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Things that differ from the docs or from CLAUDE.md
 
+- Settings: read them with `app.config.get_settings()`, never at import time. Empty values in `.env` count as unset. URL fields drop a trailing slash. Tests use only the fakes in `tests/conftest.py`, never `.env`.
+- Ruff 0.17 also formats Python code blocks in Markdown. I fixed two snippets in `docs/ROBOFLOW.md` and `docs/SUPABASE.md` so `ruff format --check .` is clean.
+- uv on this machine is set to manual Python downloads; run `uv python install 3.12` once before `uv sync`.
 - Supabase keys are the new `sb_publishable_...` and `sb_secret_...` keys; env names are `SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY`. https://supabase.com/docs/guides/getting-started/migrating-to-new-api-keys
 - Supabase runs Postgres 17.11 with pgvector 0.8.2; scratch runs 16.16 with 0.8.7. Schema definitions compared identical after applying.
 - New Supabase projects ship `public.rls_auto_enable()` (event trigger `ensure_rls`), executable by `anon`. The advisor flagged it; `0002` revokes it. An event trigger fires without EXECUTE (checked on scratch).

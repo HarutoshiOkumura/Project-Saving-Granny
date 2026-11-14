@@ -94,9 +94,10 @@ The same call with `$SUPABASE_PUBLISHABLE_KEY` must be refused (HTTP 401, code `
 
 ```python
 from supabase import create_client
+
 sb = create_client(SUPABASE_URL, SUPABASE_SECRET_KEY)
 res = sb.rpc("ask_item", {"p_home": HOME_ID, "p_query": "glasses", "p_channel": "phone"}).execute()
-answer = res.data          # a dict with "state", "room", "landmark", ..., "query_id"
+answer = res.data  # a dict with "state", "room", "landmark", ..., "query_id"
 sb.rpc("record_outcome", {"p_query": answer["query_id"], "p_found": True}).execute()
 ```
 
