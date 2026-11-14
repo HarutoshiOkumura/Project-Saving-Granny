@@ -86,6 +86,7 @@ Cut from the top. Never cut below the line.
 4. Someone moves the glasses off camera; the camera sees the empty counter three times; the next call says they are no longer there and offers the usual place.
 5. The camera enters the no-capture room and nothing is stored.
 6. All of this is also recorded as a fallback take.
+7. It all runs on the D5 setup, and every ⚠ UNVERIFIED check in `docs/DECISIONS.md` D5 has passed or has its fallback in place.
 
 ## What to say you did not build
 

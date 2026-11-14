@@ -1,18 +1,45 @@
-# Secrets: never commit (CLAUDE.md "Never commit secrets")
+# Secrets: keys live in .env only (CLAUDE.md hard rules)
 .env
 .env.*
 !.env.example
-**/.env.local
 
-# Node (agent/, the Chert FaceTime agent)
-node_modules/
-
-# Python
-.venv/
+# Python and uv (uv.lock IS committed)
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
 
-# OS
+# Local caches (bake-off responses, model outputs)
+.cache/
+
+# Node (agent/, the Chert FaceTime agent; the app itself is Python)
+node_modules/
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/
+
+# Video and frames from a real home never go in git.
+# Staged fixture frames of our own objects (tests/fixtures/frames/) are committed.
+recordings/
+*.mp4
+*.mov
+*.m4v
+*.webm
+tests/fixtures/frames/private/
+
+# Editors and OS
 .DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Claude Code personal settings
+.claude/settings.local.json

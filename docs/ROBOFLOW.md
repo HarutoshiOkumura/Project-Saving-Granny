@@ -46,8 +46,10 @@ Say in the write-up that the model is trained on our own demo objects.
 
 ```python
 from inference_sdk import InferenceHTTPClient
+
 rf = InferenceHTTPClient(api_url="https://serverless.roboflow.com", api_key=ROBOFLOW_API_KEY)
-result = rf.infer("frame.jpg", model_id=ROBOFLOW_MODEL_ID)   # predictions: class, confidence, x, y, width, height
+# predictions: class, confidence, x, y, width, height
+result = rf.infer("frame.jpg", model_id=ROBOFLOW_MODEL_ID)
 ```
 
 Verify the client and response shape in the docs before relying on this; `x` and `y` are normally the box centre in pixels of the image you sent. All Roboflow calls live in `app/perception/detector.py` behind one function, `detect(image) -> list[Detection]`, so the detector can be swapped without touching anything else.

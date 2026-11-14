@@ -1,7 +1,8 @@
 -- =====================================================================
 -- Save It: external memory for the vision models  (Postgres 15+ / Supabase)
--- Tested on Postgres 16.15 + pgvector 0.6.0 on 14 Nov 2026 with test_memory.sql (46 checks pass).
--- Not yet run on Supabase itself. Load:  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/0001_save_it_memory.sql
+-- Tested on Postgres 16.16 + pgvector 0.8.7 on 14 Nov 2026 with test_memory.sql (75 checks; 82 with
+-- the Supabase roles present). Applied to the Supabase project on 14 Nov 2026 as migration
+-- save_it_memory. FROZEN from then on: schema changes go in 0002_*.sql.
 --
 -- Layers
 --   1. Spatial index   homes > rooms > landmarks        typed in once at setup; changes rarely
@@ -12,11 +13,12 @@
 --   6. Feedback        queries                          what was asked, and whether the answer was right
 --
 -- Rules the functions enforce
---   * One glimpse is 'tentative'. A second agreeing frame makes it 'active'.
+--   * One glimpse is 'tentative'. A second agreeing frame (a different capture time) makes it 'active'.
 --   * Only the newest 'active' row per item is the current belief; older ones become 'superseded'.
 --   * Seeing an item again where it is already believed to be extends that stay (first_seen_at..last_seen_at).
---   * A landmark seen empty 3 times flips the row to 'contradicted' ("not there any more").
---   * Nothing is ever written for a room with capture_allowed = false.
+--   * A landmark seen empty 3 times, at least 30 s apart, flips the row to 'contradicted' ("not there any more").
+--   * A landmark decides its room. Nothing is ever written for a room with capture_allowed = false,
+--     and a camera frame whose room is unknown is not written either.
 --
 -- Embeddings: use ONE image encoder everywhere and set its width below (768 = CLIP ViT-L/14).
 -- With a few hundred rows no vector index is needed; exact search is instant.
@@ -145,6 +147,7 @@ create table sightings (                         -- one row per stay of an item 
   last_seen_at    timestamptz not null,
   n_frames        int not null default 1,
   absent_count    int not null default 0,        -- times the landmark was seen without the item
+  last_absent_at  timestamptz,                   -- when the last counted empty look happened
   status          text not null default 'tentative'
                   check (status in ('tentative','active','superseded','contradicted')),
   event_type      text not null default 'seen'
@@ -164,6 +167,34 @@ create index on sightings (item_id, last_seen_at desc);
 create index on sightings (home_id, last_seen_at desc);
 create index on sightings (landmark_id) where status = 'active';
 create index on sightings using gin (fts);
+
+-- Privacy backstop: a row that would place anything in a room with capture_allowed = false is
+-- silently dropped, whoever writes it. Checks the row's room and the rooms of its landmarks.
+create or replace function drop_no_capture() returns trigger language plpgsql
+  set search_path = public, pg_temp as $$
+declare
+  lms uuid[];
+begin
+  if tg_table_name = 'sightings' then
+    lms := array[new.landmark_id];
+  else
+    lms := new.landmarks_seen;
+  end if;
+  if exists (select 1 from rooms r
+              where not r.capture_allowed
+                and (r.id = new.room_id
+                     or r.id in (select l.room_id from landmarks l where l.id = any (lms)))) then
+    return null;
+  end if;
+  return new;
+end $$;
+
+create trigger observations_drop_no_capture
+  before insert or update of room_id, landmarks_seen on observations
+  for each row execute function drop_no_capture();
+create trigger sightings_drop_no_capture
+  before insert or update of room_id, landmark_id on sightings
+  for each row execute function drop_no_capture();
 
 -- ---------------------------------------------------------------------
 -- 6. Feedback: every question, and whether the answer was right
@@ -203,7 +234,8 @@ order by s.item_id, s.last_seen_at desc;
 
 create view item_usual_places with (security_invoker = true) as                -- "they're usually on your nightstand"
 select s.item_id, s.landmark_id, count(*) as episodes,
-       round(100.0 * count(*) / sum(count(*)) over (partition by s.item_id))::int as pct
+       round(100.0 * count(*) / sum(count(*)) over (partition by s.item_id))::int as pct,
+       max(s.last_seen_at) as last_seen_at
 from sightings s
 where s.item_id is not null and s.landmark_id is not null
   and s.status <> 'tentative' and not s.in_hand
@@ -223,6 +255,9 @@ where s.status <> 'tentative';
 -- ---------------------------------------------------------------------
 -- Write path 1: log one detection. Merges into an episode, applies the two-frame rule,
 -- and keeps exactly one 'active' row per item.
+-- The room is the landmark's room when a landmark is given. Raises 22023 when p_room disagrees
+-- with the landmark, or when the room or landmark is not in this home.
+-- Returns null and stores nothing for a no-capture room, or for a camera frame with no room.
 -- ---------------------------------------------------------------------
 create or replace function log_sighting(
   p_home uuid, p_item uuid, p_label text,
@@ -232,14 +267,38 @@ create or replace function log_sighting(
   p_crop_url text default null, p_description text default null,
   p_observation uuid default null,
   p_event text default 'seen', p_source text default 'worn_cam'
-) returns uuid language plpgsql as $$
+) returns uuid language plpgsql
+  set search_path = public, pg_temp as $$
 declare
-  ep sightings;
+  ep      sightings;
+  v_room  uuid := p_room;
   allowed boolean;
 begin
-  select capture_allowed into allowed from rooms where id = p_room;
-  if allowed is false then
-    return null;                                 -- privacy: nothing is stored for this room
+  if p_landmark is not null then                 -- the landmark decides the room
+    select l.room_id into v_room
+      from landmarks l join rooms r on r.id = l.room_id
+     where l.id = p_landmark and r.home_id = p_home;
+    if not found then
+      raise exception 'landmark % is not in home %', p_landmark, p_home using errcode = '22023';
+    end if;
+    if p_room is not null and p_room <> v_room then
+      raise exception 'landmark % is in room %, not in room %', p_landmark, v_room, p_room
+        using errcode = '22023';
+    end if;
+  end if;
+
+  if v_room is null then
+    if p_source in ('worn_cam', 'facetime_caller') then
+      return null;                               -- privacy fails closed: a camera frame from an unknown room
+    end if;
+  else
+    select capture_allowed into allowed from rooms where id = v_room and home_id = p_home;
+    if not found then
+      raise exception 'room % is not in home %', v_room, p_home using errcode = '22023';
+    end if;
+    if not allowed then
+      return null;                               -- privacy: nothing is stored for this room
+    end if;
   end if;
 
   perform pg_advisory_xact_lock(hashtext(coalesce(p_item::text, p_label)));
@@ -249,7 +308,7 @@ begin
      and item_id is not distinct from p_item
      and (p_item is not null or label = p_label)
      and status in ('tentative','active')
-     and room_id is not distinct from p_room
+     and room_id is not distinct from v_room
      and landmark_id is not distinct from p_landmark
      and in_hand = p_in_hand
      and (   (status = 'active' and not in_hand                 -- still where we believe it is:
@@ -260,11 +319,15 @@ begin
    limit 1;
 
   if found then                                  -- same place again: extend the episode
+    if p_seen_at = ep.first_seen_at or p_seen_at = ep.last_seen_at then
+      return ep.id;                              -- the same frame sent twice is not a second agreeing frame
+    end if;
     update sightings set
       first_seen_at = least(first_seen_at, p_seen_at),
       last_seen_at  = greatest(last_seen_at, p_seen_at),
       n_frames      = n_frames + 1,
       absent_count  = 0,
+      last_absent_at = null,
       status        = 'active',                  -- second agreeing frame confirms it
       event_type    = case when p_event <> 'seen' then p_event else event_type end,
       relation      = case when p_relation <> 'unknown' then p_relation else relation end,
@@ -282,7 +345,7 @@ begin
     insert into sightings (home_id, item_id, label, room_id, landmark_id, relation, in_hand,
                            description, first_seen_at, last_seen_at, status, event_type, source,
                            det_conf, room_conf, id_conf, crop_url, last_observation_id)
-    values (p_home, p_item, p_label, p_room, p_landmark, coalesce(p_relation, 'unknown'), p_in_hand,
+    values (p_home, p_item, p_label, v_room, p_landmark, coalesce(p_relation, 'unknown'), p_in_hand,
             p_description, p_seen_at, p_seen_at,
             case when p_event in ('told','confirmed_live') then 'active' else 'tentative' end,
             p_event, p_source, p_det_conf, p_room_conf, p_id_conf, p_crop_url, p_observation)
@@ -302,23 +365,27 @@ end $$;
 
 -- ---------------------------------------------------------------------
 -- Write path 2: the camera looked at a landmark and these items were (not) there.
--- Returns how many sightings flipped to 'contradicted'.
+-- An empty look counts only if it is at least p_min_gap after the last counted one, so a burst
+-- of frames in one glance is one look. Returns how many sightings flipped to 'contradicted'.
 -- ---------------------------------------------------------------------
 create or replace function mark_absent(
   p_home uuid, p_landmark uuid, p_seen_at timestamptz,
-  p_visible uuid[] default '{}', p_needed int default 3
-) returns int language plpgsql as $$
+  p_visible uuid[] default '{}', p_needed int default 3, p_min_gap interval default '30 seconds'
+) returns int language plpgsql
+  set search_path = public, pg_temp as $$
 declare
   flipped int;
 begin
   with hit as (
     update sightings set
       absent_count    = absent_count + 1,
+      last_absent_at  = p_seen_at,
       status          = case when absent_count + 1 >= p_needed then 'contradicted' else status end,
       contradicted_at = case when absent_count + 1 >= p_needed then p_seen_at else contradicted_at end
     where home_id = p_home and landmark_id = p_landmark
       and status = 'active' and in_hand = false
       and last_seen_at < p_seen_at
+      and (last_absent_at is null or p_seen_at >= last_absent_at + p_min_gap)
       and item_id is not null and item_id <> all (p_visible)
     returning status
   )
@@ -331,15 +398,19 @@ end $$;
 -- state: seen | carried | not_there_anymore | never_seen | unknown_item
 -- ---------------------------------------------------------------------
 create or replace function find_item(p_home uuid, p_query text) returns jsonb
-language plpgsql stable as $$
+language plpgsql stable
+  set search_path = public, pg_temp as $$
 declare
-  q        text := regexp_replace(lower(trim(p_query)), '^(my|the|a|some|her|his)\s+', '');
-  it       items;
-  cur      record;
-  j_prev   jsonb;
-  j_usual  jsonb;
+  q         text := regexp_replace(lower(trim(p_query)), '^(my|the|a|some|her|his)\s+', '');
+  it        items;
+  tz        text;
+  cur       record;
+  has_cur   boolean;
+  ruled_out uuid;                                -- the landmark this answer has just ruled out
+  j_prev    jsonb;
+  j_usual   jsonb;
   last_room text;
-  newer    boolean;
+  newer     boolean;
 begin
   select * into it from items
    where home_id = p_home
@@ -348,17 +419,7 @@ begin
   if not found then
     return jsonb_build_object('state', 'unknown_item', 'heard', p_query);
   end if;
-
-  select jsonb_build_object('room', pl.room_spoken, 'landmark', pl.landmark_spoken, 'pct', u.pct)
-    into j_usual
-    from item_usual_places u join places pl on pl.landmark_id = u.landmark_id
-   where u.item_id = it.id
-   order by u.episodes desc limit 1;
-
-  if j_usual is null and it.home_landmark_id is not null then   -- no history yet: use where the family says it belongs
-    select jsonb_build_object('room', pl.room_spoken, 'landmark', pl.landmark_spoken, 'pct', null)
-      into j_usual from places pl where pl.landmark_id = it.home_landmark_id;
-  end if;
+  select timezone into tz from homes where id = p_home;
 
   select s.id, s.status, s.in_hand, s.relation, s.event_type, s.last_seen_at, s.crop_url,
          s.landmark_id, pl.address, pl.landmark_spoken,
@@ -371,10 +432,30 @@ begin
     left join places pl on pl.landmark_id = s.landmark_id
    where s.item_id = it.id and s.status in ('active','contradicted')
    order by s.last_seen_at desc limit 1;
+  has_cur := found;
+  if has_cur and cur.status = 'contradicted' then
+    ruled_out := cur.landmark_id;
+  end if;
 
-  if not found then
+  -- Usual place: a habit needs at least 2 settled stays at one place; otherwise use where the
+  -- family says it belongs. Never offer the place this answer has just ruled out.
+  select jsonb_build_object('room', pl.room_spoken, 'landmark', pl.landmark_spoken, 'pct', u.pct)
+    into j_usual
+    from item_usual_places u join places pl on pl.landmark_id = u.landmark_id
+   where u.item_id = it.id and u.episodes >= 2
+     and u.landmark_id is distinct from ruled_out
+   order by u.episodes desc, u.last_seen_at desc limit 1;
+
+  if j_usual is null then
+    select jsonb_build_object('room', pl.room_spoken, 'landmark', pl.landmark_spoken, 'pct', null)
+      into j_usual from places pl
+     where pl.landmark_id = it.home_landmark_id
+       and pl.landmark_id is distinct from ruled_out;
+  end if;
+
+  if not has_cur then
     return jsonb_build_object(
-      'state', 'never_seen', 'item', it.name, 'plural', it.plural, 'usual', j_usual,
+      'state', 'never_seen', 'item', it.name, 'plural', it.plural, 'usual', j_usual, 'timezone', tz,
       'possible_glimpse', exists (select 1 from sightings where item_id = it.id and status = 'tentative'));
   end if;
 
@@ -403,9 +484,31 @@ begin
     'item', it.name, 'plural', it.plural, 'sighting_id', cur.id,
     'room', cur.room_spoken, 'landmark', cur.landmark_spoken, 'relation', cur.relation,
     'address', cur.address, 'minutes_ago', cur.minutes_ago,
+    'last_seen_at', to_char(cur.last_seen_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+    'timezone', tz,
     'confident', cur.conf >= 0.5, 'photo', cur.crop_url,
     'previous', j_prev, 'usual', j_usual,
     'wearer_went_to', last_room, 'possible_newer_glimpse', newer);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Read path 1b: what the voice tools call. Answers exactly like find_item and logs the question
+-- in the same call, so the read path stays one round trip and record_outcome has a row to update.
+-- Returns the find_item answer plus query_id.
+-- ---------------------------------------------------------------------
+create or replace function ask_item(p_home uuid, p_query text, p_channel text) returns jsonb
+language plpgsql
+  set search_path = public, pg_temp as $$
+declare
+  ans jsonb := find_item(p_home, p_query);
+  qid uuid;
+begin
+  insert into queries (home_id, channel, heard, item_id, sighting_id, state)
+  values (p_home, p_channel, p_query,
+          (select id from items where home_id = p_home and name = ans->>'item'),
+          (ans->>'sighting_id')::uuid, ans->>'state')
+  returning id into qid;
+  return ans || jsonb_build_object('query_id', qid);
 end $$;
 
 -- ---------------------------------------------------------------------
@@ -413,7 +516,8 @@ end $$;
 -- It may only answer with these rooms, landmarks and items, and it sees the current beliefs.
 -- ---------------------------------------------------------------------
 create or replace function perception_context(p_home uuid, p_room uuid default null) returns jsonb
-language sql stable as $$
+language sql stable
+  set search_path = public, pg_temp as $$
   select jsonb_build_object(
     'rooms', (select jsonb_agg(name order by name) from rooms where home_id = p_home),
     'landmarks', (
@@ -438,7 +542,8 @@ $$;
 -- Feedback and retention
 -- ---------------------------------------------------------------------
 create or replace function record_outcome(p_query uuid, p_found boolean) returns void
-language plpgsql as $$
+language plpgsql
+  set search_path = public, pg_temp as $$
 declare
   sid uuid;
 begin
@@ -453,7 +558,8 @@ begin
 end $$;
 
 create or replace function purge_old(p_home uuid, p_keep interval default '7 days') returns void
-language sql as $$
+language sql
+  set search_path = public, pg_temp as $$
   delete from observations where home_id = p_home and captured_at < now() - p_keep;
   delete from sightings where home_id = p_home and status = 'tentative'
                           and last_seen_at < now() - p_keep;
@@ -462,7 +568,9 @@ language sql as $$
 $$;
 
 -- ---------------------------------------------------------------------
--- Security. Use the service-role key on the backend only. Never commit keys to the repo.
+-- Security. Row level security on, with no policies: only the backend's secret key (sb_secret_...,
+-- role service_role, which bypasses RLS) reads or writes. Grants are at the end of this file.
+-- Never commit keys to the repo.
 -- ---------------------------------------------------------------------
 alter table homes        enable row level security;
 alter table rooms        enable row level security;
@@ -487,7 +595,8 @@ end $$;
 -- "Where am I?"  vote among the k nearest tour photos. First row is the winner.
 create or replace function match_room(p_home uuid, p_embedding vector(768), p_k int default 11)
 returns table (room_id uuid, room text, votes int, best_similarity real)
-language sql stable as $$
+language sql stable
+  set search_path = public, pg_temp as $$
   select t.room_id, t.name, count(*)::int, max(t.sim)::real
     from (select rr.room_id, r.name, 1 - (rr.embedding <=> p_embedding) as sim
             from room_refs rr join rooms r on r.id = rr.room_id
@@ -502,10 +611,39 @@ $$;
 -- The caller applies the threshold; below it, log the sighting with item_id = null.
 create or replace function match_item(p_home uuid, p_category text, p_embedding vector(768))
 returns table (item_id uuid, item text, similarity real)
-language sql stable as $$
+language sql stable
+  set search_path = public, pg_temp as $$
   select i.id, i.name, max(1 - (ir.embedding <=> p_embedding))::real
     from item_refs ir join items i on i.id = ir.item_id
    where i.home_id = p_home and i.category = p_category
    group by i.id, i.name
    order by 3 desc;
 $$;
+
+-- ---------------------------------------------------------------------
+-- API grants (Supabase only; skipped where the Supabase roles do not exist, as on scratch Postgres).
+-- Only the backend's secret key (role service_role) reaches these objects. The publishable key
+-- (anon) and signed-in users (authenticated) get nothing. Supabase is moving to opt-in grants,
+-- so service_role is granted explicitly. https://supabase.com/docs/guides/api/securing-your-api
+-- The vector extension's own functions are left alone.
+-- ---------------------------------------------------------------------
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    revoke all on table homes, rooms, room_links, room_refs, landmarks, items, item_refs,
+                        observations, sightings, queries,
+                        places, item_last_seen, item_usual_places, timeline
+      from anon, authenticated, service_role;
+    revoke execute on function log_sighting, mark_absent, find_item, ask_item, perception_context,
+                               record_outcome, purge_old, match_room, match_item, drop_no_capture
+      from public, anon, authenticated, service_role;
+
+    grant usage on schema public to service_role;
+    grant select, insert, update, delete on table homes, rooms, room_links, room_refs, landmarks,
+                                                  items, item_refs, observations, sightings, queries
+      to service_role;
+    grant select on table places, item_last_seen, item_usual_places, timeline to service_role;
+    grant execute on function log_sighting, mark_absent, find_item, ask_item, perception_context,
+                              record_outcome, purge_old, match_room, match_item
+      to service_role;                           -- drop_no_capture is a trigger: nobody calls it
+  end if;
+end $$;
