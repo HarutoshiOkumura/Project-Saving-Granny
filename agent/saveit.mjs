@@ -20,6 +20,19 @@ import { fakeFact, fakeRankItem, fakeRecordMiss, fakeTold } from './fake-home.mj
 
 const TIMEOUT_MS = 3000;
 
+// Dropped from the caller's words before /find, which matches item names and aliases exactly: on the 14 Nov
+// test call "where are my glasses" matched nothing. Keep in step with FILLER_WORDS in app/speak.py.
+const FILLER = new Set(
+  "where wheres where's is are my the did i put find lost please can you help me have seen your a an to look for looking it that this thing things something stuff um uh er hmm".split(' '),
+);
+
+/** "Where are my glasses?" -> "glasses". When nothing is left, the words go as given (the backend then asks). */
+export function cleanPhrase(phrase) {
+  const given = String(phrase ?? '').trim();
+  const kept = (given.toLowerCase().match(/[a-z0-9']+/g) ?? []).filter(word => !FILLER.has(word));
+  return kept.length ? kept.join(' ') : given;
+}
+
 export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'June', fetchImpl = globalThis.fetch, log = defaultLog } = {}) {
   const base = backendUrl.replace(/\/+$/, '');
   const mode = base ? 'backend' : 'fake';
@@ -90,7 +103,7 @@ export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'Jun
 
     /** find_object: where is it? Returns { say, suggested }. */
     findObject: phrase => timed('find_object', async () => {
-      if (mode === 'backend') return rememberFind(await http('GET', `/find?item=${encodeURIComponent(phrase)}&channel=facetime`));
+      if (mode === 'backend') return rememberFind(await http('GET', `/find?item=${encodeURIComponent(cleanPhrase(phrase))}&channel=facetime`));
       const rank = fakeRankItem(phrase);
       const out = speakStub(rank, familyName);
       remember(rank.state === 'unknown_item' ? null : rank, out.suggested);

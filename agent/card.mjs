@@ -1,5 +1,7 @@
 // What the caller sees: the agent's camera track (docs/DASHBOARD.md "FaceTime video card").
-// 1280x720; at most 2 lines of at most 22 characters; 56 px white text on a dark panel.
+// 1280x720, but FaceTime on an iPhone held upright showed only about the middle 84% of the width (test call,
+// 14 Nov), so everything readable stays inside SAFE_X: at most 2 lines of at most 16 characters, 70 px white
+// text on a full-width dark band.
 // Plain JavaScript with a built-in 5x7 pixel font, so it needs no canvas library or system fonts.
 // Frames are rendered once per change and reused, so sending 10 frames a second costs almost nothing.
 
@@ -9,7 +11,8 @@ export const FPS = 10;
 
 const BG = [16, 40, 52], PANEL = [6, 14, 18], WHITE = [255, 255, 255], DIM = [140, 180, 190];
 const RING = [255, 180, 60], DOT = [255, 50, 50]; // marker colours from DASHBOARD.md
-const MAX_CHARS = 22, BIG = 8, SMALL = 4;          // 7 rows x 8 = 56 px glyphs
+const MAX_CHARS = 16, BIG = 10, SMALL = 4;         // 7 rows x 10 = 70 px glyphs; 16 x 60 px fits the safe width
+export const SAFE_X = 160;                         // margin each side that FaceTime may crop (it cut ~100 px)
 
 const FONT = {
   A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'], B: ['####.', '#...#', '#...#', '####.', '#...#', '#...#', '####.'],
@@ -65,10 +68,10 @@ export function cardLines(view) {
 export function renderCard(view, lit = false) {
   const px = new Uint8Array(WIDTH * HEIGHT * 4);
   fill(px, 0, 0, WIDTH, HEIGHT, BG);
-  drawText(px, 'SAVE IT', 64, 56, SMALL, DIM);
+  drawText(px, 'SAVE IT', Math.round((WIDTH - textWidth('SAVE IT', SMALL)) / 2), 48, SMALL, DIM);
   const lines = cardLines(view);
   const lineH = 9 * BIG, panelH = lines.length * lineH + 64, panelY = Math.round((HEIGHT - panelH) / 2) - 20;
-  fill(px, 64, panelY, WIDTH - 128, panelH, PANEL);
+  fill(px, 0, panelY, WIDTH, panelH, PANEL); // full width: cropping its ends looks the same
   lines.forEach((line, i) => drawText(px, line, Math.round((WIDTH - textWidth(line, BIG)) / 2), panelY + 32 + i * lineH, BIG, WHITE));
   const cx = WIDTH / 2, cy = HEIGHT - 90;
   circle(px, cx, cy, 26, lit ? RING : PANEL);

@@ -3,6 +3,7 @@
 // Video: card.mjs shows where to look. Rules from docs/CHERT.md, docs/RETRIEVAL.md and docs/DASHBOARD.md.
 
 import './env.mjs'; // first: .env.local wins over the terminal's variables (VS Code injects the repo's .env)
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { AutoSubscribe, defineAgent, llm, voice } from '@livekit/agents';
 import * as google from '@livekit/agents-plugin-google';
@@ -18,6 +19,25 @@ const FAMILY = process.env.FAMILY_NAME || 'June';
 // "3.1" in its name rejects generateReply, so the greeting would fail and Chert would end the call.
 const MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-12-2025';
 const VOICE = process.env.GEMINI_VOICE || 'Aoede';
+
+// Optional, and not confirmed for this model in Google's docs (checked 14 Nov): GEMINI_THINKING_BUDGET=0 may
+// stop the model thinking before it answers. Unset means the model's default. Compare ttft_ms in the call log.
+const THINKING_BUDGET = process.env.GEMINI_THINKING_BUDGET;
+
+// One JSON line per event, to the console and to logs/calls.jsonl (gitignored), so a test call can be
+// measured afterwards. Timings and tool names always; what was said only with LOG_TRANSCRIPTS=1 (testing).
+const LOG_FILE = new URL('./logs/calls.jsonl', import.meta.url);
+const TRANSCRIPTS = process.env.LOG_TRANSCRIPTS === '1';
+function callLog(entry) {
+  const line = JSON.stringify({ t: new Date().toISOString(), ...entry });
+  console.log(`[save-it] ${line}`);
+  try {
+    mkdirSync(new URL('./', LOG_FILE), { recursive: true });
+    appendFileSync(LOG_FILE, `${line}\n`);
+  } catch {
+    // logging must never break a call
+  }
+}
 
 const instructions = `You are Save It, a calm, kind helper on a FaceTime call with an older person who has memory loss.
 You help them find their belongings. You are an AI; say so if they ask.
@@ -52,8 +72,8 @@ const agent = defineAgent({
     const caller = await ctx.waitForParticipant();
 
     // Per-call read-side state lives here, not in the model.
-    const saveIt = createSaveIt({ backendUrl: process.env.BACKEND_URL || '', appToken: process.env.APP_TOKEN || '', familyName: FAMILY });
-    console.log(`[save-it] call started; answers from ${saveIt.mode === 'backend' ? process.env.BACKEND_URL : 'the fake demo home (BACKEND_URL is empty)'}`);
+    const saveIt = createSaveIt({ backendUrl: process.env.BACKEND_URL || '', appToken: process.env.APP_TOKEN || '', familyName: FAMILY, log: callLog });
+    callLog({ event: 'call_start', answers_from: saveIt.mode === 'backend' ? process.env.BACKEND_URL : 'fake home (BACKEND_URL is empty)', thinking_budget: THINKING_BUDGET || 'default', transcripts: TRANSCRIPTS });
 
     // Video card: render on change, reuse frames. The marker pulses at 1 Hz while Save It speaks.
     const source = new VideoSource(WIDTH, HEIGHT);
@@ -80,7 +100,7 @@ const agent = defineAgent({
       llm.tool({
         name: 'find_object',
         description: 'Find where one of the person\'s belongings is. Call this whenever they ask where something is.',
-        parameters: { type: 'object', properties: { phrase: { type: 'string', description: 'The thing they are looking for, in their own words, e.g. "my specs".' } }, required: ['phrase'] },
+        parameters: { type: 'object', properties: { phrase: { type: 'string', description: 'Just the thing they are looking for, in their words, e.g. "glasses" or "my specs". Not the whole question.' } }, required: ['phrase'] },
         execute: async ({ phrase }) => reply(await saveIt.findObject(phrase), true),
       }),
       llm.tool({
@@ -120,10 +140,35 @@ const agent = defineAgent({
     ];
 
     const session = new voice.AgentSession({
-      llm: new google.realtime.RealtimeModel({ model: MODEL, voice: VOICE }),
+      llm: new google.realtime.RealtimeModel({
+        model: MODEL,
+        voice: VOICE,
+        ...(THINKING_BUDGET ? { thinkingConfig: { thinkingBudget: Number(THINKING_BUDGET) } } : {}),
+      }),
     });
-    session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
+    // The call log's timeline: caller stops speaking (caller: listening) -> agent thinking -> agent speaking.
+    session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => {
+      speaking = event.newState === 'speaking';
+      callLog({ event: 'agent', state: event.newState });
+    });
+    session.on(voice.AgentSessionEventTypes.UserStateChanged, event => callLog({ event: 'caller', state: event.newState }));
+    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, event => {
+      if (!event.isFinal) return;
+      callLog({ event: 'heard', ...(TRANSCRIPTS ? { text: event.transcript } : { words: event.transcript.split(/\s+/).filter(Boolean).length }) });
+    });
+    session.on(voice.AgentSessionEventTypes.ConversationItemAdded, event => {
+      if (event.item?.role === 'assistant') callLog({ event: 'said', ...(TRANSCRIPTS ? { text: event.item.textContent ?? '' } : {}) });
+    });
+    session.on(voice.AgentSessionEventTypes.MetricsCollected, event => {
+      const m = event.metrics;
+      if (m?.type === 'realtime_model_metrics') callLog({ event: 'model', ttft_ms: Math.round(m.ttftMs), duration_ms: Math.round(m.durationMs), cancelled: m.cancelled });
+    });
+    session.on(voice.AgentSessionEventTypes.Error, event => {
+      const err = event.error?.error ?? event.error;
+      callLog({ event: 'error', error: String(err?.message ?? err?.type ?? err ?? 'unknown').slice(0, 200) });
+    });
     ctx.addShutdownCallback(async () => {
+      callLog({ event: 'call_end' });
       clearInterval(timer);
       await session.close();
       await track.close();
@@ -144,7 +189,10 @@ const agent = defineAgent({
       outputOptions: { audioEnabled: true, transcriptionEnabled: false },
     });
     // Greet once when chert dev reports FaceTime is ready (bridge_ready in the room metadata). Never on join.
-    const stopGreeting = greetOnBridgeReady(ctx.room, () => session.generateReply({ instructions: greeting }));
+    const stopGreeting = greetOnBridgeReady(ctx.room, () => {
+      callLog({ event: 'greet' });
+      return session.generateReply({ instructions: greeting });
+    });
     ctx.addShutdownCallback(async () => stopGreeting());
   },
 });

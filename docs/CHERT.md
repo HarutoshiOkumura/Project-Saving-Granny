@@ -33,6 +33,8 @@ Run (two terminals, from `agent/`; a third for the backend when `BACKEND_URL=htt
 
 `npm start` must log `"agentName":"save-it"`; otherwise `chert dev` declines every call. VS Code's `python.terminal.useEnvFile` loads the repo's `.env` into every terminal and `node --env-file` never overrides a variable that is already set, so `agent/env.mjs` (imported first) applies `agent/.env.local` over the terminal's values and drops `SUPABASE_*` and `DATABASE_URL`. Change agent settings in `agent/.env.local`, not in the shell.
 
+Every call writes one JSON line per event to `agent/logs/calls.jsonl` (gitignored) and the console: caller and agent state changes, each tool call with milliseconds, and the model's `ttft_ms`. `LOG_TRANSCRIPTS=1` in `agent/.env.local` adds what was heard and said (testing only). `GEMINI_THINKING_BUDGET=0` is an optional latency experiment; Google's docs do not confirm it for this model (checked 14 Nov).
+
 `agent/.env.local` (gitignored, mode 600): `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `GOOGLE_API_KEY`, `AGENT_NAME=save-it`, `BACKEND_URL`, `APP_TOKEN`, `FAMILY_NAME`. No `OPENAI_API_KEY`: `chert doctor`'s OpenAI warning is expected.
 
 ### Agent ↔ backend contract

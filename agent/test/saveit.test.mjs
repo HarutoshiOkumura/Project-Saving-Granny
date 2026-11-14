@@ -4,10 +4,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, test } from 'node:test';
-import { cardLines, renderCard, HEIGHT, WIDTH, wrap } from '../card.mjs';
+import { cardLines, renderCard, HEIGHT, SAFE_X, WIDTH, wrap } from '../card.mjs';
 import { applyEnvFile } from '../env.mjs';
 import { fakeRankItem, resetFakeHome, resolveItem } from '../fake-home.mjs';
-import { ago, createSaveIt, placeOf, speakStub } from '../saveit.mjs';
+import { ago, cleanPhrase, createSaveIt, placeOf, speakStub } from '../saveit.mjs';
 
 const quiet = () => {};
 beforeEach(() => resetFakeHome());
@@ -171,14 +171,56 @@ test('relative times only', () => {
   assert.equal(ago(65), 'about an hour ago');
 });
 
-test('card: at most 2 lines of 22 characters, right frame size', () => {
+test('cleanPhrase: send the thing, not the question (find_item matches names exactly)', async () => {
+  assert.equal(cleanPhrase('Where are my glasses?'), 'glasses');
+  assert.equal(cleanPhrase('can you help me find my phone'), 'phone');
+  assert.equal(cleanPhrase('my specs'), 'specs');
+  assert.equal(cleanPhrase('reading glasses'), 'reading glasses');
+  assert.equal(cleanPhrase('the green bag'), 'green bag');
+  assert.equal(cleanPhrase('where did I put it'), 'where did I put it'); // nothing left: as given, so the backend asks
+  const urls = [];
+  const s = createSaveIt({ backendUrl: 'http://b.test', log: quiet, fetchImpl: async url => {
+    urls.push(url);
+    return { ok: true, json: async () => ({ sentence: 'x', result: null }) };
+  } });
+  await s.findObject('Where are my glasses?');
+  assert.equal(urls[0], 'http://b.test/find?item=glasses&channel=facetime');
+});
+
+test('card: everything readable stays inside the part FaceTime shows (it cropped ~100 px each side)', () => {
+  const views = [
+    { kind: 'idle' },
+    { kind: 'place', landmark: 'the shelf by the front door', room: 'the hallway' },
+    { kind: 'place', landmark: 'the table beside your bed', room: 'your bedroom' },
+    { kind: 'place', landmark: 'the kitchen counter', room: 'the kitchen' },
+    { kind: 'place', landmark: null, room: 'your bedroom' },
+    { kind: 'text', text: 'June is on the way' },
+  ];
+  const isText = (px, i) => (px[i] === 255 && px[i + 1] === 255 && px[i + 2] === 255) || (px[i] === 140 && px[i + 1] === 180 && px[i + 2] === 190);
+  for (const view of views) {
+    for (const lit of [false, true]) {
+      const px = renderCard(view, lit);
+      let stray = null;
+      for (let y = 0; y < HEIGHT && !stray; y++) {
+        for (let x = 0; x < WIDTH; x++) {
+          if (x >= SAFE_X && x < WIDTH - SAFE_X) continue;
+          if (isText(px, (y * WIDTH + x) * 4)) { stray = { x, y }; break; }
+        }
+      }
+      assert.equal(stray, null, `text drawn in the cropped margin for ${JSON.stringify(view)}`);
+    }
+  }
+});
+
+test('card: at most 2 lines of 16 characters, right frame size', () => {
   for (const view of [{ kind: 'idle' }, { kind: 'place', landmark: 'the table beside your bed', room: 'your bedroom' }, { kind: 'place', landmark: 'the shelf by the front door', room: 'the hallway' }]) {
     const lines = cardLines(view);
     assert.ok(lines.length >= 1 && lines.length <= 2);
-    for (const l of lines) assert.ok(l.length <= 22, l);
+    for (const l of lines) assert.ok(l.length <= 16, l);
   }
   assert.deepEqual(cardLines({ kind: 'place', landmark: 'the kitchen counter', room: 'the kitchen' }), ['KITCHEN COUNTER', 'IN THE KITCHEN']);
   assert.deepEqual(cardLines({ kind: 'place', landmark: null, room: 'your bedroom' }), ['YOUR BEDROOM']);
-  assert.deepEqual(wrap('a very long place name that will not fit on two short lines at all'), ['A VERY LONG PLACE NAME', 'THAT WILL NOT FIT ON']);
+  assert.deepEqual(cardLines({ kind: 'place', landmark: 'the table beside your bed', room: 'your bedroom' }), ['TABLE BESIDE', 'YOUR BED']);
+  assert.deepEqual(wrap('a very long place name that will not fit on two short lines at all'), ['A VERY LONG', 'PLACE NAME THAT']);
   assert.equal(renderCard({ kind: 'idle' }).length, WIDTH * HEIGHT * 4);
 });

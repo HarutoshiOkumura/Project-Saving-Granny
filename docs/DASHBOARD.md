@@ -22,8 +22,9 @@ Coder for Good judges "User Experience & Design". The Typesense sheet also score
 - Never use colour alone; pair it with a shape and words.
 - Animations ≥ 600 ms. Any pulse ≤ 1 Hz, well under 3 flashes/s.
 - **FaceTime video card** (the agent's camera track, 1280×720):
-  - ≤ 2 lines × ≤ 22 characters;
-  - 56 px white text on a dark panel (rgba 0,0,0,200);
+  - FaceTime on an iPhone held upright shows only about the middle 84% of the width (test call, 14 Nov): keep everything readable at least 160 px from each side;
+  - ≤ 2 lines × ≤ 16 characters (22 ran into the cropped edges);
+  - 70 px white text on a dark band (was 56 px);
   - shows the place name and the last-seen crop.
 - **Marker on a photo** (values from Mira's `object_finder.py`):
   - a red (255,50,50) dot with a warm orange (255,180,60) ring;

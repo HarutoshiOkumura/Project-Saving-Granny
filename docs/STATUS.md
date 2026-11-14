@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov 18:10 ET (Tom's Claude Code: env files aligned; `tom/read-side` pushed for Haru)
+Last updated: Sat 14 Nov 18:54 ET (Tom's Claude Code: fixes after the first live FaceTime call)
 
 ## Steps
 
@@ -19,7 +19,7 @@ Last updated: Sat 14 Nov 18:10 ET (Tom's Claude Code: env files aligned; `tom/re
 | 07 | Capture page | todo | |
 | 08 | Dashboard | todo | |
 | 09 | Typesense | todo | optional |
-| 10 | FaceTime | doing | With `BACKEND_URL` set, `agent/` reads step 02's `GET /find?channel=facetime` (`{sentence, result}`, verbatim) and points the card from `result`; checked live through the local backend against Supabase. "Not there" and "I put it..." save nothing until `/miss` (0003) and `/told` exist. `chert doctor --agent save-it` all pass; 10/10 `npm test`. Live FaceTime call: pending. Caller video still blocked on D4 |
+| 10 | FaceTime | doing | With `BACKEND_URL` set, `agent/` reads step 02's `GET /find?channel=facetime` (`{sentence, result}`, verbatim) and points the card from `result`; checked live through the local backend against Supabase. "Not there" and "I put it..." save nothing until `/miss` (0003) and `/told` exist. `chert doctor --agent save-it` all pass; 10/10 `npm test`. First live call (14 Nov) worked end to end but felt robotic and empty: no sightings in the log, wallet and phone not enrolled, card cut off by FaceTime. Fixes in (card inside the crop, filler words dropped before `/find`, unknown items named back, per-turn call log); retest pending. Caller video still blocked on D4 |
 | 11 | Harden and record | todo | |
 
 State is one of: todo, doing, done, stubbed (works with fake data), blocked (say on what).
@@ -61,6 +61,8 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 - Photo idea (14 Nov): keep the item's last good view instead of its best-confidence one, and a wider "context" crop that shows the landmark. Decide in step 05/06 on real fixture crops. Full frames stay out (hard rule).
 - `package.json`, `package-lock.json` and `node_modules/` (`@supabase/server`) appeared in the repo root at 15:36. The app is Python; delete them unless someone needs them.
 - For Haru: Tom's work is on branch `tom/read-side` (FaceTime agent reading `/find`, read-side docs, env-file rule in `CLAUDE.md`, `0003` not yet ready to apply). It already contains your main up to step 02; review and merge it, or tell Tom to.
+- Load `supabase/dummy_data.sql` on Supabase (Haru with the MCP, or Tom in the SQL editor): the log is empty, so every call answers "I haven't seen it yet".
+- Enroll a wallet and a phone in the demo home? On the first test call they were the first things asked for; D2 kept the demo to glasses, keys and the bag.
 - Confirm the read-side direction (D24, D25, D27 in docs/DECISIONS.md): voice uses `rank_item`, Typesense beyond name matching, Chert FaceTime as the main channel.
 - For Haru: Roboflow: applying for the academic/research plan makes all data in that workspace public on Roboflow Universe (Roboflow docs). That confirms the hard rule.
 - For Haru: Ranking trust depends on writing the right `p_event`/`p_source`: camera `seen`/`worn_cam`; family form `told`/`manual`; the person on a call `told`/`facetime_caller`.
@@ -83,3 +85,6 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 - Chert starter is JavaScript, needs Node 22.12+ and `OPENAI_API_KEY`; a Python agent works via `chert dev --agent NAME` (npm `@trychert/facetime@0.1.0-beta.21`). Details in docs/CHERT.md.
 - Our agent uses Gemini Live instead of OpenAI (D23). `@livekit/agents-plugin-google@1.8.0` drops caller video for Gemini Live and breaks `generateReply` on "3.1" models.
 - VS Code's `python.terminal.useEnvFile` (on in Tom's settings) injects the repo `.env` into every terminal, and `node --env-file` keeps injected values: the agent registered as `my-agent` (the root `.env` value) and Chert declined calls. `agent/env.mjs` now applies `agent/.env.local` first and drops `SUPABASE_*`/`DATABASE_URL`. Since 14 Nov it is off for this workspace on Tom's Mac (`.vscode/settings.json`, gitignored) and the stray `AGENT_NAME` is out of the root `.env`; terminals opened before that still carry the old values.
+- FaceTime on an iPhone held upright crops about 100 px off each side of the agent's 1280×720 video. The card keeps text 160 px in: at most 16 characters per line at 70 px (DASHBOARD.md had said 22 at 56 px).
+- `ask_item` matches names and aliases exactly, so "where are my glasses" came back `unknown_item`. The agent now drops filler words before `/find`; Typesense would do this properly (D25).
+- voice.md `unknown_item` changed (Tom, 14 Nov): name the thing back ("I don't know your wallet yet, but your family can teach me."); ask "which thing" only when we did not catch one or two words.
