@@ -1,6 +1,6 @@
 # Read path: rank_item, record_miss, speak
 
-## rank_item (migration 0002; additive, changes nothing in 0001)
+## rank_item (migration 0003; additive, changes nothing in 0001)
 
 `rank_item(p_home uuid, p_query text, p_now timestamptz default now()) returns jsonb`
 
@@ -72,11 +72,12 @@ Call it from every voice tool and from `/find`. It is one DB call, about 0.5 ms 
 
 ```bash
 psql postgresql://postgres:pw@localhost:54329/postgres -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/0001_save_it_memory.sql -f supabase/migrations/0002_ranked_search.sql \
+  -f supabase/migrations/0001_save_it_memory.sql -f supabase/migrations/0002_lock_rls_auto_enable.sql \
+  -f supabase/migrations/0003_ranked_search.sql \
   -f supabase/tests/test_memory.sql -f supabase/tests/test_ranking.sql
 ```
 
-- 46 + 13 = 59 checks pass on Postgres 16.15. That run used a stand-in for pgvector; 0002 uses no vectors.
+- 46 + 13 = 59 checks pass on Postgres 16.15. That run used a stand-in for pgvector; 0003 uses no vectors.
 - It prints a sample `rank_item` result at the end.
 
 **Behaviour the tests prove:**

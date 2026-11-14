@@ -125,7 +125,7 @@ Default: the agent asks "Would you like me to stay on the line while you look?",
 ## Settle for the read side (added 14 Nov)
 
 **D24. Which function do the voice tools call?** OPEN
-Default: `rank_item` (0002). It also returns `find_item`'s answer under `find`. "Not there" → `record_miss`.
+Default: `rank_item` (0003). It also returns `find_item`'s answer under `find`. "Not there" → `record_miss`.
 
 **D25. Typesense's job.** OPEN (replaces D18's default)
 Default: a search layer synced from Postgres. It covers:

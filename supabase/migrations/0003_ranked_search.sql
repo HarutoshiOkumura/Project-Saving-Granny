@@ -1,5 +1,5 @@
 -- =====================================================================
--- 0002: ranked "where to look next", on top of 0001. Additive only: no 0001 table or function changes.
+-- 0003: ranked "where to look next", on top of 0001. Additive only: no 0001 table or function changes.
 -- Tested on Postgres 16 with supabase/tests/test_ranking.sql (runs alone or after test_memory.sql).
 --
 -- Why: find_item() answers with the newest active sighting, so "I put them on the table", said by the

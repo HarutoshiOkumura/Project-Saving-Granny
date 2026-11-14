@@ -1,7 +1,8 @@
--- Tests for 0002_ranked_search.sql. Scratch Postgres only, never the Supabase project.
+-- Tests for 0003_ranked_search.sql. Scratch Postgres only, never the Supabase project.
 -- Runs on its own home, so it can share a database with test_memory.sql:
 --   psql "$SCRATCH" -v ON_ERROR_STOP=1 -f supabase/migrations/0001_save_it_memory.sql \
---        -f supabase/migrations/0002_ranked_search.sql -f supabase/tests/test_ranking.sql
+--        -f supabase/migrations/0002_lock_rls_auto_enable.sql \
+--        -f supabase/migrations/0003_ranked_search.sql -f supabase/tests/test_ranking.sql
 -- Every check raises on failure, so reaching "ALL RANKING CHECKS PASSED" means all passed.
 \set ON_ERROR_STOP 1
 \pset pager off
