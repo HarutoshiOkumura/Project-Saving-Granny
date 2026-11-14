@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov, 17:07 EST
+Last updated: Sat 14 Nov, 17:18 EST
 
 ## Steps
 
@@ -48,8 +48,8 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Open questions for the humans
 
-- D5: decide where the backend runs, get its public HTTPS address and put it in `PUBLIC_BASE_URL` (empty now).
-- D6: make a Coder workspace from a shared template and take a screenshot.
+- **⚠ D5 and D6 are decided but UNVERIFIED** (MacBook Pro, Coder workspace, Cloudflare Quick Tunnel, iPhone 17). Run checks A1 to A6 in `docs/DECISIONS.md` D5 in the first end-to-end test (step 03 at the latest) and write the results here. Each check has a fallback.
+- Humans, before step 03: Coder server and a Docker workspace on the Mac (screenshot it), the tunnel address in `PUBLIC_BASE_URL` (empty now), a name for who owns the Mac during judging, and ask the Coder table whether a self-hosted server counts (D6).
 - After step 01: make the Supabase MCP read-only by adding `&read_only=true` to the URL in `.mcp.json`.
 - D1: where the demo home is staged. Names now live in `supabase/seed.sql`; change them there if the staging changes.
 - Where does the bag usually live? One SQL update sets `items.home_landmark_id`.
