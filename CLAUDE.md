@@ -34,6 +34,7 @@ caller -> Vapi phone number -> POST /vapi/tool -> ask_item() -> speak() -> one s
 caller -> FaceTime -> Chert -> LiveKit agent -> ask_item() -> speak() + last-seen photo
           a thing described, not named -> GET /describe -> Typesense moments -> the item -> ask_item()
           the photo on the card        -> GET /moments/{sighting}/photo (after the answer, never before)
+          "help me get there"    -> GET /guide (polled every 2 s while they walk; no vision call, no question logged)
 family -> GET /dashboard -> GET /api/timeline
 ```
 
@@ -51,6 +52,7 @@ app/memory/db.py         the ONLY module that talks to Supabase
 app/memory/schema.py     Pydantic models for what the memory functions return (FindResult, Place)
 app/speak.py             find_item JSON -> one spoken sentence (pure, unit-tested)
 app/ask.py               one question: ask_item, speak(), 2 s timeout, fallback, log line (for /find and voice)
+app/guide.py             guided directions: find_item + the newest stored frame -> one step and its sentence (GET /guide)
 app/auth.py              the APP_TOKEN check for /frames, /concerns, /api/* (and photo links in /snapshot)
 app/look.py              "where to look": places ranked with chances for /snapshot (pure, D33)
 app/concerns.py          safety-loop rules: urgency, quiet-day check-in (pure, docs/INSIGHTS.md)
@@ -70,7 +72,7 @@ app/perception/filters.py   blur and duplicate checks
 app/worker/ingest.py     frame -> filters -> perception -> drop rules -> database (POST /frames)
 app/worker/wear.py       wear time: frames and moving frames per device-minute (counts only)
 app/web/                 capture.html, dashboard.html (static, no build step)
-agent/                   LiveKit agent for the Chert FaceTime line (separate process)
+agent/                   LiveKit agent for the Chert FaceTime line (separate process); guide.mjs polls GET /guide
 scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py, sync_moments.py, coder_setup.sh
 tests/                   pytest; tests/fixtures/frames/ holds staged frames
 supabase/migrations/     0001, 0002 and 0005_insights.sql (applied; frozen); 0003 (not applied)

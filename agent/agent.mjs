@@ -12,6 +12,7 @@ import { AudioStream, LocalVideoTrack, RoomEvent, TrackKind, TrackSource, VideoB
 import { FPS, HEIGHT, photoLayout, renderCard, WIDTH } from './card.mjs';
 import { runAgent } from './chert-rooms.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
+import { GUIDE_TOOL, createGuide, sayGuidance } from './guide.mjs';
 import { decodePhoto } from './photo.mjs';
 import { GREETING, buildInstructions } from './prompt.mjs';
 import { CONCERN_ANSWERS, CONCERN_KINDS, createConcernReporter } from './concern.mjs';
@@ -219,6 +220,31 @@ const agent = defineAgent({
         execute: async ({ object_phrase, place_phrase, kind }) => reply(await saveIt.recordPlacement(object_phrase, place_phrase, kind)),
       }),
     ];
+
+    // Guided directions (guide.mjs): once they ask for help getting there, GET /guide is polled while they walk
+    // and Find It speaks up when they get closer. Voice only; the card keeps showing the place. It needs the
+    // backend (the camera's view lives there), so the fake home has no such tool.
+    const guide = createGuide({
+      saveIt,
+      backendUrl: process.env.BACKEND_URL || '',
+      appToken: process.env.APP_TOKEN || '',
+      log: callLog,
+      onLookup: found => reply(found, true),
+      announce: g => {
+        if (speaking || hearing) return false; // never over the caller, never over ourselves; tried again next poll
+        session.generateReply({ instructions: sayGuidance(g.sentence) });
+        return true;
+      },
+    });
+    if (saveIt.mode === 'backend') {
+      tools.push(llm.tool({
+        name: 'guide_to_thing',
+        description: GUIDE_TOOL,
+        parameters: { type: 'object', properties: { thing: { type: 'string', description: 'The thing they are looking for, e.g. "glasses".' } } },
+        execute: async ({ thing } = {}) => guide.begin(thing),
+      }));
+    }
+    ctx.addShutdownCallback(async () => guide.stop('call_end'));
 
     const session = new voice.AgentSession({
       llm: new google.realtime.RealtimeModel({

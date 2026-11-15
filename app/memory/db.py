@@ -11,6 +11,8 @@ for "where to look" in the snapshot, D33). `find_item` is the read that logs no 
 Photos are read with `download_photo` (the bytes, for the card the backend draws) and
 `sign_photos` (links that work for an hour, for the snapshot); a storage path never leaves the
 backend.
+Guided directions (`app/guide.py`) read `latest_view` (the newest stored frame: the wearer's room
+and the landmarks in view) and `home_layout` (rooms and landmarks).
 """
 
 import asyncio
@@ -36,11 +38,13 @@ from app.memory.schema import (
     FindResult,
     Glimpse,
     HomeInfo,
+    HomeLayout,
     HomeMap,
     Item,
     LifeEvent,
     LookEvidence,
     Moment,
+    Observation,
     PatternRows,
     PerceptionContext,
     PlaceName,
@@ -257,6 +261,66 @@ async def perception_context(room_id: UUID | None = None) -> PerceptionContext:
         client = await _get_client()
         response = await client.rpc("perception_context", params).execute()
     return PerceptionContext.model_validate(response.data)
+
+
+# Guidance (`GET /guide`, app/guide.py) reads two more things, both text only: the newest frame's
+# room and landmarks, and the home's layout.
+
+
+async def latest_view() -> Observation | None:
+    """The newest frame the worn camera had processed: the wearer's room and the landmarks in
+    view. None before the first frame. Read-only. Raises like `ask_item`."""
+    async with asyncio.timeout(READ_TIMEOUT_S):
+        client = await _get_client()
+        response = await (
+            client.table("observations")
+            .select("captured_at,room_id,landmarks_seen")
+            .eq("home_id", _home())
+            .eq("source", "worn_cam")
+            .order("captured_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    return Observation.model_validate(response.data[0]) if response.data else None
+
+
+async def home_layout() -> HomeLayout:
+    """Room spoken names and floors, landmark addresses, and which rooms connect. Read-only.
+    It changes only when the family edits the home, so the caller caches it."""
+    home = _home()
+    async with asyncio.timeout(READ_TIMEOUT_S):
+        client = await _get_client()
+        rooms, places = await asyncio.gather(
+            client.table("rooms").select("id,name,spoken_name,floor").eq("home_id", home).execute(),
+            client.table("places")
+            .select("landmark_id,room_id,address")
+            .eq("home_id", home)
+            .execute(),
+        )
+        room_ids = [r["id"] for r in rooms.data]
+        links = (
+            (
+                await client.table("room_links")
+                .select("room_a,room_b")
+                .in_("room_a", room_ids)
+                .execute()
+            ).data
+            if room_ids
+            else []
+        )
+    return HomeLayout.model_validate(
+        {
+            "rooms": [
+                {"id": r["id"], "spoken": r["spoken_name"] or r["name"], "floor": r["floor"]}
+                for r in rooms.data
+            ],
+            "landmarks": [
+                {"id": p["landmark_id"], "room_id": p["room_id"], "address": p["address"]}
+                for p in places.data
+            ],
+            "links": [(link["room_a"], link["room_b"]) for link in links],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------------------------
