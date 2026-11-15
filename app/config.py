@@ -86,6 +86,18 @@ class Settings(BaseSettings):
     typesense_host: str | None = None
     typesense_api_key: SecretStr | None = None
 
+    # Moments: the photo of where an item was last seen, for the FaceTime card, and the search
+    # over those photos (app/moments.py). MOMENT_PHOTOS=false stops the extra upload per sighting.
+    moment_photos: bool = True
+    embedding_model: str = "gemini-embedding-2"
+
+    # The room's 3D scan (D25, docs/SPLAT.md). `scripts/build_room.py` sends photos to the splat
+    # builder at SPLAT_URL (the SSH tunnel to the GPU machine) and saves the result in ROOM_DIR,
+    # which `GET /room` serves. The folder is gitignored: a scan is as private as the frames.
+    splat_url: Url = "http://127.0.0.1:8900"
+    splat_token: SecretStr | None = None
+    room_dir: Path = ENV_FILE.parent / ".cache" / "room"
+
 
 @lru_cache
 def get_settings() -> Settings:

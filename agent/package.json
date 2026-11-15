@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node --env-file=.env.local agent.mjs start",
-    "check": "node --check env.mjs && node --check chert-rooms.mjs && node --check agent.mjs && node --check card.mjs && node --check greet.mjs && node --check saveit.mjs && node --check fake-home.mjs && node --check web-call.mjs && node --check voice-meter.mjs",
+    "check": "node --check env.mjs && node --check chert-rooms.mjs && node --check agent.mjs && node --check card.mjs && node --check greet.mjs && node --check saveit.mjs && node --check fake-home.mjs && node --check web-call.mjs && node --check voice-meter.mjs && node --check photo.mjs",
     "test": "node --test test/",
     "web-call": "node web-call.mjs",
     "help": "node agent.mjs --help"
@@ -16,7 +16,8 @@
   "dependencies": {
     "@livekit/agents": "1.8.0",
     "@livekit/agents-plugin-google": "1.8.0",
-    "@livekit/rtc-node": "0.13.35"
+    "@livekit/rtc-node": "0.13.35",
+    "sharp": "0.35.3"
   },
   "devDependencies": {
     "livekit-client": "2.23.0"

@@ -1,6 +1,6 @@
 """Pydantic models for what the memory functions return. Keys follow `find_item` in 0001."""
 
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -21,6 +21,69 @@ class Item(BaseModel):
     category: str | None = None  # the detector's class: items of one category are look-alikes
     color: str | None = None
     description: str | None = None
+
+
+class Pin(BaseModel):
+    """One landmark and where it is in the room's 3D scan (`db.list_pins`). `x`, `y`, `z` are
+    `landmarks.x/y/z` in the scan's level viewer axes (`splat/geometry.py`); None until someone
+    has placed the pin (D25 A)."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    landmark_id: UUID
+    address: str  # "room > landmark", as `find_item` returns it
+    spoken: str  # "the table"
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+
+    @property
+    def position(self) -> tuple[float, float, float] | None:
+        if self.x is None or self.y is None or self.z is None:
+            return None
+        return (self.x, self.y, self.z)
+
+
+class Moment(BaseModel):
+    """One stay of an item at a place, with the words a search needs (`db.list_moments`).
+
+    `room` and `landmark` are the spoken names. `note` is what the camera saw, in the vision
+    model's words. `photo` is the tight crop's storage path (`sightings.crop_url`)."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    item: str
+    aliases: list[str] = []
+    looks: str | None = None
+    note: str | None = None
+    room: str | None = None
+    landmark: str | None = None
+    relation: str = "unknown"
+    in_hand: bool = False
+    status: str
+    last_seen_at: AwareDatetime
+    photo: str | None = None
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> "Moment":
+        """A `sightings` row with its `items`, `landmarks` and `rooms` rows embedded."""
+        item = row.get("items") or {}
+        looks = ", ".join(part for part in (item.get("color"), item.get("description")) if part)
+        return cls(
+            id=row["id"],
+            item=item.get("name", ""),
+            aliases=item.get("aliases") or [],
+            looks=looks or None,
+            note=row.get("description"),
+            room=(row.get("rooms") or {}).get("spoken_name"),
+            landmark=(row.get("landmarks") or {}).get("spoken_name"),
+            relation=row.get("relation") or "unknown",
+            in_hand=bool(row.get("in_hand")),
+            status=row["status"],
+            last_seen_at=row["last_seen_at"],
+            photo=row.get("crop_url"),
+        )
 
 
 class Place(BaseModel):

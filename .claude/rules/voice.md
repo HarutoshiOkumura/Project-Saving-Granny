@@ -64,6 +64,8 @@ Never offer a `usual` place that is the same as the place just ruled out.
 - Phone (Vapi): call the tool for every "where is" question, then say the tool's sentence word for word. Do not add places, times or guesses.
 - The assistant's spoken name is **Find It** (Tom, 14 Nov; was "Save It"). Internal ids (`save-it`) are unchanged.
 - When a question could mean more than one item (two water bottles), the FaceTime agent asks one short question by how they look ("The blue one or the green one?"), using `looks_like` from the snapshot, then answers. Only when it really could be either.
+- When the caller describes a thing instead of naming it ("the silver one I wear on my wrist"), the FaceTime agent calls `find_by_description` (15 Nov). One clear fit: it says which thing it understood, then that thing's sentence. Several equal fits: "Do you mean your green bag or your brown bag?" (`moments.which_one`). No fit: the `unknown_item` sentence. It never guesses between a fit and a near miss.
+- On FaceTime a photo of the thing where it was last seen may appear with the answer. The agent may say "have a look at the picture", but never describes the photo: it cannot see it.
 - One question at a time. Speak slowly and warmly. Repeat the answer gladly when asked.
 - After answering (D15), offer to stay on the line while they look, but not after every answer (asking every time sounded robotic on the test call). If yes, wait, then ask whether they found it and report the answer with the outcome tool if it exists.
 - If the caller sounds distressed or asks for a person, be calm and reassuring. Do not promise to let anyone know until the family call exists.

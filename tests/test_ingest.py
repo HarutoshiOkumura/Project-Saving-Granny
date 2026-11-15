@@ -204,6 +204,38 @@ def test_a_placed_item_is_logged_with_its_crop_and_the_landmarks_are_marked_seen
     assert set(result.ms) >= {"filters", "context", "sam3", "gemini", "observation", "total"}
 
 
+def test_each_logged_look_asks_for_its_moment_photo_and_does_not_wait_for_it(
+    worker: Worker, fake_db: FakeDB, seen: FakePerceive, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[tuple[Any, ...]] = []
+
+    def record_soon(frame: Any, box: Any, crop_url: Any, sighting_id: Any) -> None:
+        asked.append((frame.width, frame.height, box, crop_url, sighting_id))
+
+    monkeypatch.setattr(worker_module.moments, "record_soon", record_soon)  # a plain function
+
+    result = run(worker)
+
+    assert result.status == "stored"
+    [(width, height, box, crop_url, sighting_id)] = asked
+    assert (width, height) == (1440, 1920)  # the frame the crop came from
+    assert box is not None and len(box) == 4
+    assert (crop_url, sighting_id) == ("crops/home/keys/x.jpg", SIGHTING)
+
+
+def test_a_look_whose_crop_failed_still_reports_to_the_hook_which_then_skips_it(
+    worker: Worker, fake_db: FakeDB, seen: FakePerceive, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[Any] = []
+    monkeypatch.setattr(
+        worker_module.moments, "record_soon", lambda frame, box, url, sid: asked.append(url)
+    )
+    fake_db.upload_fails = True
+
+    assert run(worker).status == "stored"
+    assert asked == [None]  # record_soon does nothing without a crop
+
+
 def test_an_item_in_hand_is_logged_with_its_room_and_no_landmark(
     worker: Worker, fake_db: FakeDB, seen: FakePerceive
 ) -> None:

@@ -26,6 +26,7 @@ Coder for Good judges "User Experience & Design". The Typesense sheet also score
   - ≤ 2 lines × ≤ 16 characters (22 ran into the cropped edges);
   - 70 px white text on a dark band (was 56 px);
   - shows the place name and the last-seen crop;
+  - **photo card (built 15 Nov):** the whole photo of the moment the thing was last seen sits above a one-line band with the landmark's name (two lines for a long name), an orange ring (255,180,60) with a dark edge marks the thing, and the talking light moves to the top right corner. The photo is fitted, never cut or zoomed (changed after the 15 Nov test call). The ring breathes at 1 Hz for 8 s, then holds still. The backend fits the photo inside the part of the card FaceTime keeps (`GET /moments/{id}/photo`, `docs/CHERT.md`);
   - a marker below the text: orange ring and red dot pulsing at 1 Hz while Save It talks; steady green the moment the caller's voice comes in, from a level meter on their audio (`agent/voice-meter.mjs`; about 0.3 s from voice to green on the video, measured 14 Nov); dim otherwise. No word under the light: Tom's choice on 14 Nov, after a version that said LISTENING.
 - **Marker on a photo** (values from Mira's `object_finder.py`):
   - a red (255,50,50) dot with a warm orange (255,180,60) ring;

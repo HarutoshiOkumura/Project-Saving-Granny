@@ -54,6 +54,17 @@ Checked against the Typesense 30.2 docs and the `typesense` Python client 2.1.1 
 - synonyms ("specs", "clicker")
 - meaning ("the thing I read with")
 
+## As built: the `moments` collection (15 Nov, `app/moments.py`)
+
+One document per stay of an item at a place (a row of `sightings`), so a caller can describe a thing instead of naming it.
+
+- **Fields:** `item`, `aliases`, `looks` (colour and description), `note` (what the vision model saw), `place` ("on the table in the classroom"), `status`, `in_hand`, `seen_at`, `photo` (not indexed), `home_id`, and `embedding`: `float[]`, `num_dim` 768, optional.
+- **The vector is multimodal and made outside Typesense:** `gemini-embedding-2` gets the stay's tight crop and its words as one input and returns one vector. Typesense's own CLIP model (item 10 below) is a 605 MB download, which the hall network could not deliver.
+- **Search** (`GET /describe`): `POST /multi_search` with one search: `q` (the description minus filler words), `query_by: item,aliases,looks,note,place`, `vector_query: embedding:([<the description's vector>], k:12, alpha:0.7)`, `filter_by: home_id:=... && status:!=tentative`, `prefix: false`, typo settings as for names, `exclude_fields: embedding`. Checked live on 30.2: a `q` with `query_by` text fields plus a `vector_query` carrying our own vector is a hybrid search, and each hit carries `vector_distance`.
+- **Deciding:** the closest moment per item, then the cuts in `app/moments.py` (`MAX_DISTANCE`, `MARGIN`; measured in `docs/STATUS.md`). One clear fit is answered through `ask()`, so Postgres still gives the answer; several equal fits make the voice ask which one; none falls back to `/find`.
+- **Kept in step:** the backend checks Postgres every 10 s and indexes stays that are new or changed (`emplace` when only status or time changed, so the vector is not made again; `upsert` with a new vector when the photo changed), and deletes stays that are gone. `uv run python -m scripts.sync_moments` rebuilds it from nothing.
+- **Not built:** searching by an uploaded photo, a second vector for the wider moment photo (a description by place alone, "the one on the chair", does not separate items), analytics on descriptions that fit nothing.
+
 ## Features and exact syntax
 
 1. **Per-person synonym sets.** `PUT /synonym_sets/{name}`:

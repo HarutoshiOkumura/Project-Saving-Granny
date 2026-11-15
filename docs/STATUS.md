@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov 21:48 EST: `tom/read-side` merged into `main` (Haru's steps 04 to 06 with Tom's steps 01b, 09, 10). Both work on `main` from now on.
+Last updated: Sun 15 Nov 03:10 EST (Tom's Claude Code, room session: the splat builder and `GET /room` work end to end, row 14; the room page no longer speaks unless switched on). Before that: Sun 15 Nov 03:05 EST (Tom's Claude Code: FaceTime photo shown whole and wider; the robotic voice traced to the room page). Another Claude Code session on Tom's Mac is building the 3D room view at the same time and also edits this file. Before that: Sat 14 Nov 21:48 EST, `tom/read-side` merged into `main`. Both work on `main`.
 
 ## Steps
 
@@ -22,6 +22,8 @@ Last updated: Sat 14 Nov 21:48 EST: `tom/read-side` merged into `main` (Haru's s
 | 10 | FaceTime | doing | The agent loads `GET /snapshot` (every item's sentence, no question logged) when a call starts and answers known items in one model turn, in its own words, with places and times kept as given; transcripts drive the card and the question log through `/find`. Gemini thinking off by default. Spoken-question benchmark through LiveKit, first sound after the question: 1.8 to 3.8 s, median about 2.2 s (was 3.2 to 4.9 s); answers 3 to 4.4 s long (was 6.8 to 7.6 s). No `find_object` tool while a snapshot is loaded (Tom's test call: it answered the bag and looked it up, then repeated itself). Card marker: green about 0.3 s after the caller's voice starts (level meter on their audio, no word). No promises to contact family anywhere (tools without backends removed; `speak()` no longer says "let me check with your family"). "Bag" now asks which one, like the water bottle. Spoken name now Find It; asks "the blue one or the green one?" when two items fit (looks in the snapshot), tested by voice against Gemini at about 1.5 s a turn. Browser test calls: `npm run web-call`. "Not there" and "I put it..." still save nothing (no `/miss`, `/told`). Caller video still blocked on D4 |
 | 11 | Harden and record | todo | |
 | 12 | Unregistered objects | todo | optional (D26 C, `/step-12-unregistered`). Start only after CP1 and CP4 pass and by 01:00 Sun; otherwise it is a "next step" in the pitch |
+| 13 | Moments: FaceTime photo, search by description | done, not yet tried on a call | Asked by Tom, 15 Nov. **Photo:** after an answer that says where a thing is, the FaceTime card shows the photo of that sighting with the place name on a band below; the place card goes up first and the photo replaces it when loaded, so the answer never waits. `GET /moments/{sighting_id}/photo` (needs `APP_TOKEN`) returns it sized for the card. New sightings get the wider moment photo with a ring on the thing: the ingest worker asks for it in the background for every logged look (`moments.record_soon`, added 15 Nov with Tom's go-ahead; cost measured below). The log was reset and `IMG_2092.MOV` processed again on 15 Nov 02:10 to 02:29 (below), so every stay now has its moment photo. **Search:** `GET /describe?q=` and the agent tool `find_by_description` turn "the silver one I wear on my wrist" into the item, then answer like `/find`. Typesense `moments` collection, hybrid: keywords plus a `gemini-embedding-2` vector made from each stay's crop and words; the backend keeps it in step with Postgres every 10 s. Live on the 5 demo items: described things answered in 0.4 to 0.8 s, "my wallet" gets "I don't know your wallet yet", photo on the card 0.6 to 2.1 s after the answer. 88 new Python tests (394), 13 new agent tests (42). **Not yet tried by voice on a call** (the browser call was started for Tom at 02:35) |
+| 14 | Room scan: splat builder and 3D room view (D25 A) | done on sample scenes; **not yet run on our own room** | Asked by Tom, 15 Nov (he lifted the out-of-scope rule for this). `uv run python -m scripts.build_room video.mov` cuts frames on the laptop, sends the sharpest 32 (448 px) to the splat builder on a rented RTX 4090 (`splat/`, AnySplat, one forward pass, reached by SSH tunnel) and saves `preview.spz` + `full.spz` in `.cache/room/`. `GET /room` shows the room (three.js + Spark, served from `app/web/vendor/`), one large button per item; a tap shows the memory's sentence and the last-seen photo and flies to that landmark's pin. Pins are `landmarks.x/y/z`, placed by tapping in the 3D view (`PUT /room/pins`); things are never shown where the scan saw them. Measured on AnySplat's sample scenes: GPU 1.5 s (17 photos) and 2.6 s (32 photos) to a preview; from a video on Tom's Mac, preview saved after 4.4 s, both files after 5.8 s (44 s and 4 min when the hall network was at 30 to 60 KB/s). 39 new tests (the suite: 436 pass, 4 skipped), and 5 more that need torch: they pass on the GPU machine and check the GPU arithmetic against the numpy reference. All in `docs/SPLAT.md`. Not built: the refinement pass, a private-bucket copy of the scan |
 
 State is one of: todo, doing, done, stubbed (works with fake data), blocked (say on what).
 
@@ -60,6 +62,32 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Tuned values
 
+Moments search, 15 Nov (`app/moments.py`; 5 items, 6 stays; 13 descriptions of enrolled things, 11 things that are not enrolled; cosine distance, lower is closer):
+
+| | Result |
+|---|---|
+| Right item ranked first | 13 of 13 |
+| Distance of the right item | 0.31 to 0.42 |
+| Best wrong guess for an unknown thing (wallet, phone, dentures, TV remote...) | 0.41 to 0.45 |
+| Cuts chosen | `MAX_DISTANCE` 0.425, `MARGIN` 0.035 (the best fit must beat the next item by this much) |
+| Enrolled things answered with those cuts | 10 of 13. "What I drink from" declines; "the one I left on the chair" and "the thing on the floor" ask which one (place words alone do not separate items) |
+| Unknown things answered wrongly | 0 of 11 |
+
+A small sample with thin margins ("the tv remote" missed the cut by 0.006). Re-measure when items are added; the cuts lean towards "I don't know" on purpose.
+
+What the moment photo hook costs the ingest worker, 15 Nov (worker run on fixture frames with the database and models faked as in `tests/test_ingest.py`, real image work, 40 frames per run, 3 runs each way):
+
+| | Hook off | Hook on |
+|---|---|---|
+| Frame start to finish, median (50 ms stand-in for the models) | 80.1 to 80.5 ms | 79.6 to 80.8 ms |
+| Same, worst frame | 91 to 94 ms | 90 to 98 ms |
+| The `sightings` stage, median | 8.0 ms | 8.0 ms |
+
+- The call the worker makes (`record_soon`) takes about 4 microseconds. The photo itself takes 12 ms (worst 15) in a worker thread, off the event loop.
+- One moment photo is 21 to 78 KB (median 43 KB) on the 12 fixture frames with an item; the frame it comes from is 372 KB to 1.2 MB (median 661 KB) and already goes to SAM 3, and to Gemini when the gate opens.
+- One upload at a time per stay, newest look wins: 40 looks at one stay with a 300 ms upload stored 11 photos, not 40.
+- Real uploads, 15 Nov run on Tom's Mac (20 photos): 12 to 68 KB each, made in 7 to 18 ms, uploaded in 147 to 1,278 ms (median 238 ms), all in the background. The frames that kept an item took 19 s each on that link (SAM 3 and Gemini), so the photo was about 1 to 2% on top.
+
 Step 05 live run, 15 Nov (`RUN_LIVE=1 LIVE_FRAMES=all uv run pytest -m live -s`, report in `.cache/live/perception.md`): all defaults kept, margins in D11.
 
 - Room cut 0.6: lowest right `room_confidence` 0.80. Item cut 0.5: lowest right item 0.95, no stray item at all.
@@ -87,6 +115,27 @@ Bake-off, 14 Nov (8 close-ups, 4 medium, 5 empty; frames at 1920 px; box hit = I
 Every Gemini run had the room right on every frame, no stray items, and every empty landmark listed in view. All Gemini misses were keys frames: the seeded description named an orange lanyard the keys do not have. With the description fixed (last row), nothing was missed.
 
 ## Open questions for the humans
+
+- **Room scan (row 14), to use it:** (1) film a slow 20 to 40 s walk around the staged table and chair, no people in shot; (2) `uv run python -m scripts.build_room <video>`; (3) open `/room`, type `APP_TOKEN`, press Place pins and tap the table, the chair and the floor once each. The room in `.cache/room/` right now is AnySplat's sample kitchen, and no landmark has a pin yet.
+- **`/room` needs a backend started after 03:00.** The one on port 8000 (started 02:29) does not have the routes; restart it. Until then the room session's own backend on port 8010 serves it, and that one stops when that session ends.
+- **A GPU is rented and billing: Vast.ai instance 60754139 (RTX 4090, about $0.47 an hour, $10.20 credit at 02:15).** Tom said yes to renting at 02:15. `scripts/splat_gpu.sh destroy` ends it; nothing else will. The tunnel (`scripts/splat_gpu.sh tunnel`) must be running for `build_room.py`.
+- **Only staged scenes go to that GPU.** So far it has seen AnySplat's own sample images, nothing of ours. A scan of a real home, or frames with a person, needs the team's yes first (D25, `docs/SPLAT.md`).
+- `app/web/vendor/` holds three.js 0.180.0 and Spark 2.4.0 (3.7 MB, MIT), so the room page loads without the venue network. Commit it with the page, or the page is blank on another machine.
+
+- **For Haru: Tom's Claude Code changed two of your files on 15 Nov, with Tom's go-ahead.** `app/worker/ingest.py` gained one import and one call in the sightings loop, `moments.record_soon(frame, item.box, crop_url, sighting)`: for every logged look it has the wide moment photo made and uploaded in the background (`...Z.moment.jpg` beside the crop). It is not awaited and never raises; measured cost in "Tuned values". `tests/conftest.py` sets `MOMENT_PHOTOS=false` so your ingest tests stay offline, and `tests/test_ingest.py` has two new tests for the call. To turn it off anywhere: `MOMENT_PHOTOS=false` in `.env`.
+- **The moment photo is not checked for faces.** It is a wide crop (all of an upright frame's width, at most half its area), so a person standing beside the thing can be in it. The hard rule in `CLAUDE.md`, the perception rules and D21 now say so. Fine for staged scenes; decide before a real home (blur faces, or keep it off).
+- **The "robotic voice" on the 02:51 test call was not the agent.** It was the 3D room page (`app/web/room.html`, being built in another Claude Code session on Tom's Mac, served by that session's backend on port 8010). `choose(item, byHand)` there speaks the picked item's sentence with the browser's built-in speech (`speechSynthesis`, lines 366 to 373). The speakers played "I last saw your glasses on the table about forty minutes ago", the call's microphone picked it up, and the agent logged it as *heard* twice and tried `record_placement` for it (`POST /told`, 404, nothing saved). The room backend's log shows that page loading the glasses photo at those times. Fix on the room page's side: no speech, or a mute switch, or speech only when no call is running; or use headphones. Not changed here: that file belongs to the other session. **Fixed 03:08 by the room session:** the page is silent unless someone presses its "Read aloud" switch, and the headless browser that was tapping it for tests is stopped. Sorry for the false trail.
+- **The photo was too zoomed in on that call; changed 15 Nov about 03:00** (Tom). Before, the caller saw about a tenth of the frame (a 3:2 window of 75% of the frame's width, then cut again to fill the card behind a two-line band). Now the moment photo is the widest 16:9 view the rule allows (all of an upright frame's width, at most half its area; 960 px, 32 to 74 KB on the six stored ones), the card shows it whole, the band is one line (the landmark), and the light sits in a corner: about a third of the frame, three times as much. The six stored photos were re-cut from the same video frames (one fresh `perceive()` each for the box); no database row changed. Close put-downs still show little around the thing, because the camera was close: the frame is all there is. Next step if that matters: keep the widest look of a stay instead of the most confident one.
+- **Supabase was reset and the video processed again on Tom's Mac, 15 Nov 02:10 to 02:29** (Tom asked). Backup of the old log (21 questions, 6 sightings, 15 frame records): `.cache/supabase-backup-20261115-0215.json` on Tom's Mac. Result: 132 frames (one per 0.5 s), 20 stored, no errors; active stays: watch on the table (3 looks), keys on the table (4), water bottle on the chair (3), bag on the floor (5), glasses on the table (5); one tentative watch in a hand. `find_item` answers all five as `seen`.
+  - **The keys stay is the false one from CP3's caveat:** its photo shows a keyring on a teammate's desk beside a laptop, with part of someone's arm. Delete it or re-film before the demo video.
+  - **It was not a real-time replay.** Tom's link gave 2 to 17 s per SAM 3 call and 7 to 9 s per Gemini call, so `scripts/replay_video.py` would have lost nearly every frame. The frames (cut with the script's ffmpeg filter) went through `worker.ingest()` one after another with `DETECTOR_TIMEOUT_S=30` and `PERCEPTION_TIMEOUT_S=60`, capture times 0.5 s apart ending at 02:10. No frame was dropped as busy, so more frames were looked at than in the 14 Nov replay (20 stored against 15). The driver was a throwaway script, not in the repo.
+  - Close put-downs fill the moment photo (watch, bottle, glasses), so those cards show no ring; the bag and the keys are ringed.
+- **Tom's Mac was not set up for intake until 15 Nov 02:05:** `.env` had `PERCEPTION_MODEL=claude-haiku-5-5` (now `gemini-3.6-flash`) and no `ROBOFLOW_API_KEY` (Tom added it); `ffmpeg` is not installed (the run used the binary inside a conda environment's `imageio_ffmpeg`); the `coder port-forward ... 8090` process was stopped so the browser call could use port 8090. `ANTHROPIC_API_KEY` is still in that `.env`, unused.
+- **`APP_TOKEN` was empty on Tom's Mac** in `.env` and `agent/.env.local`; 15 Nov 01:47 one random value was written to both (not printed anywhere). `/moments/.../photo` and `/frames` need it. A backend on another machine needs the same value in its `.env`.
+- **Try it on a call** (`npm run web-call`, no Chert minutes): ask for the watch, then "the green one with the gold letters". Check that the photo appears after the place name, that the text band is readable, and how long the description tool takes by voice (each tool call cost about 1.5 s on the 14 Nov call).
+- The live checks of `/describe` and `/find` on 15 Nov logged about a dozen test questions in `queries` (web and facetime). The rehearsal reset clears them.
+- Embeddings send each stay's tight crop to the Gemini API once (`gemini-embedding-2`, same key as perception). The hard rule about real camera frames (billing-enabled project, logging off) applies to these calls too; the embeddings call has no `store` option.
+- The local `saveit-typesense` container was restarted once (15 Nov, about 01:25) to stop a 605 MB model download that was using the hall's whole connection. `items` is intact; `moments` holds 6 stays. Rebuild it any time: `uv run python -m scripts.sync_moments`.
 
 - **D26 C (remember unregistered objects): decide by 01:00 Sun**, once CP1 and CP4 pass. D26 has both options, the risks (other people's things, as CP3's keyring showed) and the pitch line if it is not built. "Add an item" (A) is in step 08 either way.
 
@@ -124,6 +173,16 @@ Every Gemini run had the room right on every frame, no stray items, and every em
 - For Haru: Landmarks can set the new nullable `find_chance` (0–1) and `check_seconds`. Null means the default by kind.
 
 ## Things that differ from the docs or from CLAUDE.md
+
+- Room scan: built although `CLAUDE.md` lists 3D scans as out of scope until the core demo passes (Tom asked, 15 Nov). D25 A planned a Scaniverse point cloud with `PLYLoader`; it is a Gaussian splat from AnySplat shown with Spark instead. What differs from the plan Tom supplied is listed at the end of `docs/SPLAT.md`.
+- `splat/` is Python 3.10 code (the GPU machine's AnySplat environment) inside a 3.12 repo: ruff has a per-folder target, and `app/room.py` and `scripts/build_room.py` import only its numpy parts (`frames`, `spz`, `geometry`). New modules: `app/room.py`, `app/web/room.html`, `scripts/build_room.py`, `scripts/video_frames.swift`, `scripts/splat_gpu.sh`. New settings: `SPLAT_URL`, `SPLAT_TOKEN`, `ROOM_DIR`. `app/memory/db.py` gained `list_pins` and `set_pin` (a write to `landmarks.x/y/z` only).
+- This Mac has no ffmpeg: `build_room.py` cuts video frames with AVFoundation through a small Swift program compiled on first use. `scripts/replay_video.py` still needs ffmpeg.
+
+- Moments: Typesense's built-in image search (`docs/TYPESENSE.md` item 10, `ts/clip-vit-b-p32`) is not used. The model is a 605 MB download and the hall network gave 5 to 60 KB/s on 15 Nov. Vectors come from `gemini-embedding-2` instead (768 numbers; the crop and the words go in as one input and come back as one vector) and sit in a plain `float[]` field; the search sends the description's vector in `vector_query` through `POST /multi_search` with keywords in `q` (hybrid, `alpha` 0.7).
+- `gemini-embedding-2` takes no `task_type`. Google's embeddings page (read 15 Nov; it now redirects to aistudio.google.com/docs/embeddings) says to prefix a text query with `task: search result | query: ` and to put no prefix on mixed picture-and-text input. A list of parts gives one vector, not one per part.
+- Network, 15 Nov about 01:30: a 44 KB crop took 11 s from Supabase Storage at the worst moment (0.2 to 0.7 s later). Hence small photos, a photo cache in the backend, and the card showing the place name before the photo.
+- The agent now lists `sharp` 0.35.3 as its own dependency (`@livekit/agents` already installed that version; only `package.json` and the lockfile changed). It is loaded on first use, so an agent without it still answers calls.
+- New modules: `app/photo.py`, `app/moments.py`, `scripts/sync_moments.py`, `agent/photo.mjs`. The backend starts a background task (`moments.keep_current`) with the app; it does nothing without Typesense and a Google key.
 
 - The `google-genai` SDK retries 408, 409, 429 and 5xx up to 4 times inside each call by default, and its `timeout` let one call run 94 s. The bake-off turns that off (`HttpRetryOptions(attempts=1)`) and wraps calls in `asyncio.timeout`; the rules file now says the same for step 05. On the free tier, 4 calls in flight drew a 429 storm; 1 in flight drew none.
 - `gemini-3.8-flash` timed out again on its step 04 retry (60 s). Not used.

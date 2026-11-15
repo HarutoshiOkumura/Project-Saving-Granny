@@ -62,6 +62,7 @@ These load when you work on perception, the ingest worker, the bake-off or the r
 
 - A padded box (15 percent on each side) around the item, clipped to the frame. Never the full frame, never a face.
 - Upload only after the drop rules pass, to the private `crops` bucket at `crops/<home>/<item>/<utc timestamp>.jpg`.
+- Each logged look also gets a moment photo beside its crop (`...Z.moment.jpg`, 15 Nov): the widest 16:9 window around the item, at most half of the frame's area (all of an upright frame's width), 960 px, with the item's place inside it kept in a JPEG comment. The worker only calls `moments.record_soon()`; the photo is made in a thread and uploaded in the background, one at a time per stay with the newest look winning, so no frame waits on it. It is not a tight crop: it can show a person standing beside the item (D21). `MOMENT_PHOTOS=false` turns it off.
 
 ## Detectors and Roboflow
 

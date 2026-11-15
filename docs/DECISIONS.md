@@ -198,6 +198,7 @@ Read on 14 Nov: "Model Monitoring does not save inference images by default" (ht
 Every call also sends `disable_model_monitoring: true`. That covers monitoring, not the serving infrastructure itself, so the question to Roboflow stays open.
 
 **D21. What the model may see of people.** Default: crops are padded boxes around items; the prompt forbids describing people; no face is stored.
+Changed 15 Nov (Tom): each look also stores a moment photo, the widest 16:9 view around the item and at most half of the frame's area (first 75% of its width and height; widened the same night after a test call showed too little of the room), so the FaceTime card can show where the thing sits. Nothing checks it for faces, so "no face is stored" now holds only for the tight crops. Fine for staged scenes; before a real home, either blur faces in the moment photo or set `MOMENT_PHOTOS=false`.
 
 **D22. Measuring it.** Default metric for the write-up: on the fixture set, the share of put-down events where `find_item` then returns the right landmark. Report the number, however small the set.
 
@@ -235,7 +236,8 @@ Default: Gemini (`gemini-3.5-flash`, billing-enabled key). Without a key, skip N
 
 ## After the core demo passes
 
-**D25. A room scan: 3D view (A) and room recognition from the scan (C).** OPEN (the team, 14 Nov: maybe, as an afterthought)
+**D25. A room scan: 3D view (A) and room recognition from the scan (C).** A BUILT (Tom, 15 Nov), C OPEN (the team, 14 Nov: maybe, as an afterthought)
+A as built differs from the plan below: the scan is a Gaussian splat made in seconds by AnySplat on a rented GPU from a phone video (`scripts/build_room.py`), shown at `GET /room` with Spark, and the pins are placed by tapping in the 3D view. `docs/SPLAT.md` has it all; the text below is the original plan.
 The judges liked the point cloud idea on 14 Nov.
 Start only after CP3 and CP4 pass (cut item 1 in `PLAN.md`, and the out-of-scope list in `CLAUDE.md`); until then, finish the original plan.
 Optional now: record the scan video while the staged table and chair are set up; it takes ten minutes and touches no code.
