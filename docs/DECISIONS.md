@@ -307,3 +307,84 @@ That decides the difference between the two options below.
 **Deciding on C.** Build A regardless.
 Start C only after CP1 (a real call answers) and CP4 (live camera) pass, and not later than 01:00 on Sun 15 Nov, so it can be re-tested and rehearsed before the 05:00 freeze.
 If it has not started by then, keep it as the next step in the pitch: "we only remember what the family chose, so we never point you at someone else's bottle; recognising anything is next."
+
+**D33. Demo scope after the judge's feedback.** DECIDED (Haru, Sun 15 Nov 01:00 EST, after talking with a judge; written by Claude Code)
+
+Channel and scope:
+
+- Vapi is cut: step 03 will not be built.
+  People ask through FaceTime to the Chert line (step 10).
+  D30 is decided: Chert FaceTime is the main voice channel.
+  D31 is decided: Chert's JavaScript agent, not Python.
+- CP1 now means: a FaceTime call to the Chert line answers from camera data.
+- The camera page (step 07) is deferred.
+  The demo video is pre-recorded, so frames come from a recorded walk through `scripts/replay_video.py --interval 0.5`, which gives the same answers as the live page would.
+  With no camera page, no public tunnel is needed: the backend, the agent, the Chert connector and Typesense all run on one Mac, and the agent calls `http://localhost:8000`.
+  Build step 07 only if time is left.
+- Rehearsal reset done on Supabase on Sat 14 Nov, about 23:20 EST: 80 questions, 13 sightings and 32 observations deleted.
+  Rooms, landmarks and all 7 items are kept, the look-alikes "brown bag" and "orange water bottle" too.
+  Every item answered `never_seen` afterwards.
+
+What the judge asked for, in this order:
+
+1. **Where to look**: when the system is not sure, a ranked list of places with chances ("the table 70%, the chair 30%").
+2. **The photo on the FaceTime card**: the last-seen crop.
+3. **Live pointing on FaceTime**: an arrow over the caller's own camera view toward the item, like Find My's precision finding.
+   This lifts "AR arrows, live pointing on FaceTime" from the out-of-scope list in `CLAUDE.md`, for this arrow only.
+
+Plan and owners (about 4 hours to the 05:00 freeze; features stop at 02:30, then stage, rehearse, film and write Devpost):
+
+| Who | What | Time |
+|---|---|---|
+| Haru with Claude Code | **Rank 3 backend first**: "where to look" in `/snapshot` (ranked places with percentages from the `item_usual_places` view, plus the last place, the usual place and glimpses) and a signed last-seen photo link. Additive fields only, so the agent keeps working | about 1 h |
+| Haru with Claude Code | Then `POST /locate`: one camera frame and a target in, SAM 3 boxes out, reusing `app/perception/detector.py` (the Roboflow key stays in the backend). APP_TOKEN-protected | about 45 min |
+| Haru with Claude Code | Then the dashboard view of "where to look" with the crops, if time | about 1 h |
+| Tom | The caller-video check (below), then the photo on the card, then arrow mode | 30 min, 1 h, 1.5 to 2 h |
+| Everyone | From 02:30: stage (one table in view), rehearse, film, Devpost | 2.5 h |
+
+Rank 2 (D26 C, lean: unregistered objects through `/snapshot`) comes only after all of the above.
+Its 01:00 start deadline in D26 has passed, so by D26 it is a pitch line unless everything above is done early.
+If it is built: on its own branch; a new additive field in `/snapshot`; tell Tom before the few lines in `agent/prompt.mjs` merge; re-run the 17-frame live test, which must stay 17/17.
+
+How the arrow works (no app, no screen share):
+
+- A FaceTime call carries two video feeds.
+  The caller's camera goes to the agent, and the agent's own video comes back and fills the caller's screen.
+  Today that video is Tom's card (`agent/card.mjs`).
+- The agent's video becomes a copy of the caller's camera view, sent back about 10 times a second with an overlay: an arrow toward the target when it is in view but off-centre, a ring and "there they are" when it is centred, "getting closer" as its box grows, and the last-seen photo in a corner.
+  It reaches the caller about 0.3 to 0.5 s behind their real movement.
+  FaceTime's small self-view still shows the raw camera.
+- About twice a second the agent sends a small JPEG of the newest caller frame to `POST /locate`.
+  The target is the landmark first (its name, or `landmarks.point_prompt`), then the item's SAM 3 wording once close.
+- When the target is not in view, the card shows the last-seen photo and "where to look" ("It's usually on the table, so point your phone at the table").
+- The caller flips FaceTime to the back camera.
+- Limit: it points only at what is in view.
+  The TreeHacks 2026 team Mira (https://github.com/nathanjzhao/treehacks2026) located objects in a 3D map and tracked the camera's 6-DoF pose against it on an A100 GPU, so they could point at things out of view.
+  Not feasible tonight, and copying it would look derivative.
+  Our pitch angle: no glasses, no app, no GPU; grandma calls with the iPhone she already has.
+- Risks: the card's shape (FaceTime cut the sides off the landscape card on an upright iPhone; a portrait 720 x 1280 echo may fit better), and pointing at the wrong table (SAM 3 boxes any table, as the CP3 keyring showed), so the staging keeps one table in view.
+- Fallback if caller video cannot be had: the photo card, "where to look", and a top-down room map with a dot on the landmark from the point cloud (D25 A: a 10-minute scan, then about 1.5 h).
+
+**Caller video is blocked in four places today** (Haru's FaceTime test on 15 Nov: asked to describe the classroom, the agent kept repeating the items list):
+
+1. `agent/agent.mjs:70`: `ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY)`.
+   The agent subscribes only to the caller's audio.
+2. `agent/agent.mjs:208`: `videoEnabled: false` ("later, once Chert confirms caller capture on our line (D4)").
+3. The Gemini plugin's `pushVideo(_) {}` is empty in `@livekit/agents-plugin-google` 1.8.0 (`dist/realtime/realtime_api.js`), and still empty in the newest release, 1.10.0 (checked 15 Nov).
+   Upgrading does not help.
+4. The agent's instructions keep Gemini on the items list.
+5. Not verified: Chert's line must have caller capture on.
+   Chert's audio-video page says enabling video does not enable caller capture; their EmoryHacks page says the agent sees the caller's video live.
+
+What unlocks what:
+
+- **The arrow needs only 1 and 5.** Subscribe to the caller's video track (Chert names it `facetime-remote-video` for bring-your-own-room), read frames with `VideoStream` from `@livekit/rtc-node`, and send small JPEGs to `/locate`.
+  Gemini never needs to see the video.
+- **"Describe what you see" through Gemini also needs a workaround for 3**: the plugin already forwards `realtime_input` events with `mediaChunks` to Gemini's `sendRealtimeInput({ media })`, so the agent can send about one JPEG a second through the session's `sendClientEvent`.
+  About 1 hour, and it leans on the plugin's internals.
+  Python's plugin forwards video natively, but switching languages now is not worth it.
+- **First 15 minutes for Tom**: subscribe to all tracks and log what the FaceTime bridge publishes (kind, name, source), then save one frame as an image.
+  Check that a frame arrives, that it is the camera picture and not FaceTime's controls, and which way up it is.
+  No video track at all means it is Chert-side (5): ask Chert staff (D4).
+
+Cut tonight: step 12's full version (a database search function), D25 C (room gate from the scan), step 07 unless time remains, and "describe what you see" unless Tom has time after the arrow.

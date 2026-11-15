@@ -8,6 +8,16 @@ from fastapi import Header, HTTPException, status
 from app.config import get_settings
 
 
+def has_app_token(authorization: Annotated[str | None, Header()] = None) -> bool:
+    """True when the request carries `Authorization: Bearer <APP_TOKEN>`. Never raises: for
+    routes that give more to a holder of the token (photo links in `/snapshot`)."""
+    token = get_settings().app_token
+    if token is None or authorization is None:
+        return False
+    expected = f"Bearer {token.get_secret_value()}".encode()
+    return secrets.compare_digest(authorization.encode(), expected)
+
+
 def require_app_token(authorization: Annotated[str | None, Header()] = None) -> None:
     """`Authorization: Bearer <APP_TOKEN>`. Without APP_TOKEN set, every request is refused."""
     token = get_settings().app_token

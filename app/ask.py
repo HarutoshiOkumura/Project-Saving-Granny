@@ -8,16 +8,19 @@ one place. This never raises: any failure becomes the fallback sentence.
 import asyncio
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel
 
+from app.look import WhereToLook, where_to_look
 from app.memory import db
 from app.memory.schema import Channel, FindResult, Item
 from app.names import resolve
 from app.speak import FALLBACK, speak
 
 logger = logging.getLogger(__name__)
+
+GLIMPSE_WINDOW = timedelta(hours=24)  # one-frame stays older than this are not worth a look
 
 
 class Answer(BaseModel):
@@ -65,49 +68,69 @@ class Known(BaseModel):
     looks_like: str | None = None  # colour and description, so the agent can tell look-alikes apart
     sentence: str
     result: FindResult | None = None
+    where_to_look: WhereToLook | None = None  # places ranked with chances (D33)
+    photo_url: str | None = None  # the last-seen crop, a link that works for an hour
 
 
-async def snapshot() -> list[Known]:
-    """Every item's current answer, logging no questions. The FaceTime agent loads this when a call
-    starts, so it can answer in one model turn instead of a tool round trip. Never raises: on a
-    database failure it returns [] and the agent falls back to asking per question."""
+async def snapshot(*, with_photos: bool = False) -> list[Known]:
+    """Every item's current answer and where to look, logging no questions. The FaceTime agent
+    loads this when a call starts, so it can answer in one model turn instead of a tool round
+    trip. Never raises: on a database failure it returns [] and the agent falls back to asking per
+    question; when only the habits, the glimpses or the photo links fail, those fields are None.
+    `with_photos` adds signed links to the last-seen crops (only for a caller holding the token)."""
     started = time.perf_counter()
+    now = datetime.now(UTC)
     try:
         names = await db.list_items()
-        results = await asyncio.gather(
-            *(db.find_item(n.name) for n in names), return_exceptions=True
+        evidence_and_results = await asyncio.gather(
+            db.look_evidence([n.id for n in names], now - GLIMPSE_WINDOW),
+            *(db.find_item(n.name) for n in names),
+            return_exceptions=True,
         )
     except Exception as exc:
         logger.warning("snapshot error=%s ms=%d", _describe(exc), _ms_since(started))
         return []
-    now = datetime.now(UTC)
-    known = []
-    for name, result in zip(names, results, strict=True):
-        if isinstance(result, BaseException):
-            known.append(
-                Known(
-                    item=name.name,
-                    aliases=name.aliases,
-                    kind=name.category,
-                    color=name.color,
-                    looks_like=_looks(name),
-                    sentence=FALLBACK,
-                )
-            )
-        else:
-            known.append(
-                Known(
-                    item=name.name,
-                    aliases=name.aliases,
-                    kind=name.category,
-                    color=name.color,
-                    looks_like=_looks(name),
-                    sentence=speak(result, now),
-                    result=result,
-                )
-            )
-    logger.info("snapshot items=%d ms=%d", len(known), _ms_since(started))
+    evidence, *results = evidence_and_results
+    if isinstance(evidence, BaseException):
+        logger.warning("snapshot look=error error=%s", _describe(evidence))
+        evidence = None
+    found = [r if isinstance(r, FindResult) else None for r in results]
+    links = await _photo_links(found) if with_photos else {}
+    known = [
+        Known(
+            item=name.name,
+            aliases=name.aliases,
+            kind=name.category,
+            color=name.color,
+            looks_like=_looks(name),
+            sentence=speak(result, now) if result else FALLBACK,
+            result=result,
+            where_to_look=where_to_look(name, result, evidence, now) if evidence else None,
+            photo_url=links.get(result.photo) if result and result.photo else None,
+        )
+        for name, result in zip(names, found, strict=True)
+    ]
+    logger.info(
+        "snapshot items=%d look=%s photos=%d ms=%d",
+        len(known),
+        "ok" if evidence else "none",
+        len(links),
+        _ms_since(started),
+    )
     return known
+
+
+async def _photo_links(results: list[FindResult | None]) -> dict[str, str]:
+    """Signed links for every answer's crop, by storage path. {} on any failure: the snapshot
+    is still worth having without photos."""
+    paths = [r.photo for r in results if r and r.photo]
+    if not paths:
+        return {}
+    try:
+        return await db.sign_photos(paths)
+    except Exception as exc:
+        logger.warning("snapshot photos=error error=%s", _describe(exc))
+        return {}
 
 
 def _looks(item: Item) -> str | None:

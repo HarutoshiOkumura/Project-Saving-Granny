@@ -8,8 +8,8 @@
   },
   "scripts": {
     "start": "node --env-file=.env.local agent.mjs start",
-    "check": "node --check env.mjs && node --check chert-rooms.mjs && node --check agent.mjs && node --check card.mjs && node --check greet.mjs && node --check saveit.mjs && node --check fake-home.mjs && node --check web-call.mjs && node --check voice-meter.mjs && node --check photo.mjs",
-    "test": "node --test test/",
+    "check": "node --check env.mjs && node --check chert-rooms.mjs && node --check agent.mjs && node --check card.mjs && node --check greet.mjs && node --check saveit.mjs && node --check fake-home.mjs && node --check web-call.mjs && node --check voice-meter.mjs && node --check photo.mjs && node --check concern.mjs",
+    "test": "node --test 'test/**/*.test.mjs'",
     "web-call": "node web-call.mjs",
     "help": "node agent.mjs --help"
   },

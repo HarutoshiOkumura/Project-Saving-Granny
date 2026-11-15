@@ -29,16 +29,18 @@ Build the read path first, on seeded data, then the write path.
 
 ## Steps in order
 
+Since Sun 15 Nov 01:00 the plan to the freeze is D33 in `docs/DECISIONS.md`: step 03 cut, step 07 deferred, step 10 core, plus the judge's asks (where to look, the photo on the FaceTime card, the arrow).
+
 | # | Step | Depends on | Est. hours | Output you can show |
 |---|---|---|---|---|
 | 00 | Scaffold repo, environment, Coder workspace | nothing | 0.5 | `uv run pytest` passes on an empty app |
 | 01 | Supabase: schema, seed home, smoke test | 00 | 0.75 | `find_item` answers in the SQL editor |
 | 02 | Find API and `speak()` | 01 | 1 | `curl /find?item=glasses` returns one sentence |
-| 03 | Phone voice (Vapi) | 02 | 1.5 | Call the number, hear the answer |
+| 03 | Phone voice (Vapi): **cut (D33)** | 02 | | People ask through FaceTime (step 10) |
 | 04 | Detector bake-off, start training if needed | Roboflow key, staged frames | 1 + training in background | A table of hits and misses per model |
 | 05 | Perception module | 01, 04 | 2 | Fixture frames produce correct JSON |
 | 06 | Ingest worker, run on a replayed video | 05 | 2 | A recorded walk fills the timeline |
-| 07 | Capture page on the phone | 06 | 1.5 to 2 | Live frames from the lanyard phone |
+| 07 | Capture page on the phone: **deferred (D33)** | 06 | 1.5 to 2 | Live frames from the lanyard phone; the demo uses the replay path instead |
 | 08 | Family dashboard | 02 | 2.5 | Timeline with crops; "tell Save It" form; "add an item" form (D26 A) |
 | 09 | Typesense name matching | 02 | 1.5 to 2 | "specs" and "spectecles" both resolve |
 | 10 | FaceTime line (Chert + LiveKit) | 02, line confirmed | 4 to 6 | FaceTime call answers and shows the photo |
@@ -72,7 +74,7 @@ Cut from the top. Never cut below the line.
 2. Step 12, remembering unregistered objects (D26 C); keep "add an item" (D26 A), which is part of step 08
 3. Coder egress allowlist for the worker (keep building in Coder; that alone earns the credit)
 4. Step 09, Typesense
-5. Live pointing on FaceTime (keep the last-seen photo)
+5. Live pointing on FaceTime (keep the last-seen photo). The judge asked for it on 15 Nov (D33): cut it only after Rank 3 and the photo card are done
 6. Step 10, FaceTime entirely
 7. Embedding lookups (`match_room`, `match_item`); the language model names the room and each category has one enrolled item
 

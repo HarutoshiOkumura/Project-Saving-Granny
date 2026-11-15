@@ -14,6 +14,7 @@ import { runAgent } from './chert-rooms.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { decodePhoto } from './photo.mjs';
 import { GREETING, buildInstructions } from './prompt.mjs';
+import { CONCERN_ANSWERS, CONCERN_KINDS, createConcernReporter } from './concern.mjs';
 import { createSaveIt } from './saveit.mjs';
 import { createVoiceMeter } from './voice-meter.mjs';
 
@@ -81,6 +82,7 @@ const agent = defineAgent({
 
     // Per-call read-side state lives here, not in the model.
     const saveIt = createSaveIt({ backendUrl: process.env.BACKEND_URL || '', appToken: process.env.APP_TOKEN || '', familyName: FAMILY, log: callLog });
+    const concerns = createConcernReporter({ backendUrl: process.env.BACKEND_URL || '', appToken: process.env.APP_TOKEN || '', log: callLog });
     const testCall = isTestCall(ctx.job?.metadata);
     const knownSoon = saveIt.loadSnapshot(); // loads while the card is published
     callLog({ event: 'call_start', test_call: testCall, answers_from: saveIt.mode === 'backend' ? process.env.BACKEND_URL : 'fake home (BACKEND_URL is empty)', thinking_budget: THINKING_BUDGET || 'default', vad: Object.keys(VAD).length ? VAD : 'default', transcripts: TRANSCRIPTS });
@@ -181,6 +183,20 @@ const agent = defineAgent({
     });
     const tools = [
       ...(known.length ? [] : [findObjectTool]),
+      // Always offered, snapshot or not (docs/INSIGHTS.md design 3): ask once, report, the family decides.
+      llm.tool({
+        name: 'report_concern',
+        description: 'They fell, are hurt, need help (not with finding a thing), smell smoke, are lost outside, or someone wants money from them. Ask "Are you hurt?" first, except for smoke or money. Returns what to say.',
+        parameters: {
+          type: 'object',
+          properties: {
+            kind: { type: 'string', enum: CONCERN_KINDS },
+            answer: { type: 'string', enum: CONCERN_ANSWERS, description: 'Their answer to "Are you hurt?": hurt, ok (even if they say they are fine), or no_answer. Leave out for smoke or money.' },
+          },
+          required: ['kind'],
+        },
+        execute: async ({ kind, answer }) => (await concerns.report(kind, answer)).say,
+      }),
       ...(saveIt.mode === 'backend' ? [describeTool] : []),
       llm.tool({
         name: 'report_not_there',

@@ -38,10 +38,12 @@ from app.perception.perceive import (
 )
 from app.perception.retry import describe
 from app.perception.schema import NO_LANDMARK, Perception
+from app.worker.wear import WearCounter, moved
 
 logger = logging.getLogger(__name__)
 
 CONTEXT_TTL_S = 30.0
+WEAR_FLUSH_S = 15.0  # wear minutes are stored at most this often (docs/INSIGHTS.md design 1)
 
 Status = Literal[
     "stored",  # an observation was written (items logged and landmarks marked as seen)
@@ -99,6 +101,9 @@ class Worker:
         self.vlm_slots = VlmSlots(settings.vlm_in_flight)
         self._cache: tuple[float, PerceptionContext, HomeMap] | None = None
         self._cache_lock = asyncio.Lock()
+        self.wear = WearCounter()
+        self._wear_flushed = time.monotonic()
+        self._wear_lock = asyncio.Lock()
 
     def device(self, device_id: str) -> _Device:
         if device_id not in self.devices:
@@ -125,7 +130,25 @@ class Worker:
         except Exception as exc:  # the write path may fail softly; the frame is skipped
             result = run.result("error", error=describe(exc))
         _log(result)
+        if time.monotonic() - self._wear_flushed >= WEAR_FLUSH_S:
+            await self.flush_wear()
         return result
+
+    async def flush_wear(self) -> int:
+        """Store the wear minutes that changed since the last flush. Never raises: on a failure
+        the minutes are kept and sent with the next flush. Returns how many minutes were stored."""
+        async with self._wear_lock:
+            self._wear_flushed = time.monotonic()
+            counts = self.wear.take()
+            if not counts:
+                return 0
+            try:
+                await db.upsert_wear_minutes(counts)
+            except Exception as exc:
+                self.wear.give_back(counts)
+                logger.warning("wear minutes=%d error=%s", len(counts), describe(exc))
+                return 0
+            return len(counts)
 
     async def _ingest(
         self, run: "_Run", jpeg: bytes, device_id: str, captured_at: datetime
@@ -134,6 +157,7 @@ class Worker:
         frame = load_frame(jpeg)
         device = self.device(device_id)
         verdict = device.gate.check(frame, captured_at)
+        self.wear.add(device_id, captured_at, moved(verdict, s.duplicate_cut))
         run.sharpness, run.similarity = verdict.sharpness, verdict.similarity
         run.lap("filters")
         if verdict.result != "ok":

@@ -64,6 +64,60 @@ Which picture: the ingest worker stores a wider moment photo beside each look's 
 
 With no `APP_TOKEN` in `agent/.env.local`, or a backend without one, the photo request is refused and the card stays on the place name; the call log shows `"tool":"photo","ok":false`.
 
+The card does not use `photo_url` from the snapshot (next section): that is a link to the tight crop, and the card wants the wider moment photo, sized and with the ring's place. Both keep the rule that the agent never holds a Supabase key: the card's picture comes from the backend's `/moments/<id>/photo`, which is never logged with a credential in it.
+
+### Where to look and the last-seen photo (D33, 15 Nov)
+
+Each `/snapshot` entry has two new fields.
+Every older field is unchanged, so an agent that ignores them keeps working.
+
+- `where_to_look`: places ranked with chances, or `null` for an unknown item or when the read failed.
+
+  ```json
+  {"band": "high",
+   "places": [{"landmark_id": "2bfe…", "room": "the classroom", "landmark": "the table",
+               "address": "b_school_classroom > table", "pct": 67,
+               "why": ["last_seen", "home"], "minutes_ago": 30},
+              {"landmark_id": "3882…", "room": "the classroom", "landmark": "the chair",
+               "address": "b_school_classroom > chair", "pct": 25,
+               "why": ["glimpse"], "minutes_ago": 1}],
+   "elsewhere_pct": 8,
+   "ruled_out": null}
+  ```
+
+  - `places` is most likely first, with at most 4 places; the `pct` values plus `elsewhere_pct` add up to 100.
+    `room` and `landmark` are the spoken words, as in `result`.
+  - `why` says what put a place on the list: `last_seen` (the current answer), `glimpse` (one camera frame newer than the answer: a hint, never an answer), `usual` (two or more settled stays there) and `home` (where the family says it belongs).
+  - `band`: `high` when the top place has at least 60% and leads the second by 25 points, `split` when the top two have 60% together, `low` otherwise.
+    Offer the list when the band is not `high`, or when the caller says it is not there.
+    Say the places in order, most likely first, and never the percentages (`.claude/rules/voice.md`); the percentages are for the card.
+  - `ruled_out` is the place just seen empty (`not_there_anymore`); it is never in `places` unless a newer glimpse put it back.
+  - The weights are in `app/look.py`.
+    The chances are a ranking aid, not measured probabilities.
+- `photo_url`: a signed link to the last-seen crop, valid for 1 hour, or `null`.
+  It is sent only when the request carries `Authorization: Bearer <APP_TOKEN>`, because it opens a private crop.
+  `saveit.mjs` already sends that header when `APP_TOKEN` is set, so set `APP_TOKEN` in `agent/.env.local` to the backend's value.
+  `result.photo` stays the storage path.
+
+Measured against Supabase on 15 Nov: `/snapshot` takes about 190 ms warm without the token and 270 to 340 ms with it (signing is one Storage request); the first call after a restart took 1.2 s.
+If the habit read or the signing fails, the sentences still come back and only these fields are `null`.
+
+### Safety: report_concern (15 Nov)
+
+The agent always offers a `report_concern` tool, with or without a snapshot (`agent/concern.mjs`, rules in `agent/prompt.mjs` `SAFETY_RULES`, wording in `.claude/rules/voice.md` "Safety").
+It is design 3 of `docs/INSIGHTS.md`: ask once, report, and let the family decide.
+It never calls 911 and never says it told anyone.
+
+- Triggers: a fall or "I can't get up", being hurt, help that is not about finding a thing, smoke or burning, being lost outside, and someone wanting money (gift cards, a wire, bank details, a grandchild in jail, "don't tell anyone").
+- Near misses that must not trigger: "my glasses fell", "the bag fell off the chair", "help me find my keys", "I lost my keys".
+- Flow: for a fall, hurt, help or lost, the model asks "Are you hurt?" once, then calls the tool with `answer` `hurt`, `ok` (even "I'm fine") or `no_answer`; for smoke or money it calls at once.
+- The tool returns the sentence to say, chosen by kind and answer; the backend reply never changes it.
+- Backend: `POST /concerns` with `Authorization: Bearer <APP_TOKEN>` and `{"kind", "answer", "channel": "facetime"}`; reply `201 {"id", "urgency", "room"}`.
+  Any failure (no backend, 401, 503, timeout after 3 s) is logged as `report_concern ok:false` and swallowed.
+  With `BACKEND_URL` empty nothing is sent.
+- Offline tests: `agent/test/concern.test.mjs` (request shape, failures swallowed, fake mode, wording in step with `voice.md`, triggers and near misses in the prompt).
+- **Untested by voice. Tom: run the near-miss phrases and one of each trigger on a test call** (`npm run web-call`), and check that the model asks "Are you hurt?" only once and does not call the tool for "my glasses fell".
+
 ### Test without FaceTime (uses no Chert minutes)
 Chert counts FaceTime minutes per call (trial: 50, at most 5 a call; `npx @trychert/facetime@0.1.0-beta.20 doctor` shows what is left). Holding the line costs nothing, and the agent opens no Gemini session until someone joins. For everyday testing, skip FaceTime:
 1. Backend (repo root): `uv run uvicorn app.main:app --port 8000`
@@ -123,6 +177,9 @@ This is documented in `CLI_GUIDE`.
 - The LiveKit key and secret stay on this machine. Chert gets a token for one room, valid for at most 2 h.
 
 ## Video
+
+**Caller video is blocked in four places as of 15 Nov (D33 in `docs/DECISIONS.md`):** `AutoSubscribe.AUDIO_ONLY` (`agent.mjs:70`), `videoEnabled: false` (`agent.mjs:208`), the Gemini plugin's empty `pushVideo` (1.8.0 to 1.10.0), and the prompt; Chert's caller capture on our line is unverified. D33 has the 15-minute check and the arrow design (`POST /locate`, echo the caller's view with an overlay).
+
 - Calls carry `media: {audio, video}`. Lines report `supports_audio` and `supports_video`. Call events include `remote_video_ready`, `remote_video_unavailable` and `caller_video_published`.
 - Requesting video doesn't guarantee it: check the line's `supports_video` and the call's `media_status`.
 - **Our agent shows video only by publishing a camera track from the agent.** The video starter already does this. Replace the drawn face with our card: the place name in big text plus the last-seen crop (sizes and colours in `docs/DASHBOARD.md`).

@@ -31,7 +31,7 @@ phone camera page --JPEG every 0.5 s--> POST /frames
                                    |-- Gemini Flash: room, landmark, relation, in_hand as strict JSON
 
 READ PATH (fast, must never fail)
-caller -> Vapi phone number -> POST /vapi/tool -> ask_item() -> speak() -> one sentence
+caller -> Vapi phone number -> POST /vapi/tool -> ask_item() -> speak() -> one sentence   (cut, D33)
 caller -> FaceTime -> Chert -> LiveKit agent -> ask_item() -> speak() + last-seen photo
           a thing described, not named -> GET /describe -> Typesense moments -> the item -> ask_item()
           the photo on the card        -> GET /moments/{sighting}/photo (after the answer, never before)
@@ -54,7 +54,11 @@ app/memory/db.py         the ONLY module that talks to Supabase
 app/memory/schema.py     Pydantic models for what the memory functions return (FindResult, Place)
 app/speak.py             find_item JSON -> one spoken sentence (pure, unit-tested)
 app/ask.py               one question: ask_item, speak(), 2 s timeout, fallback, log line (for /find and voice)
-app/auth.py              the APP_TOKEN check for /frames (and later the dashboard)
+app/auth.py              the APP_TOKEN check for /frames, /concerns, /api/* (and photo links in /snapshot)
+app/look.py              "where to look": places ranked with chances for /snapshot (pure, D33)
+app/concerns.py          safety-loop rules: urgency, quiet-day check-in (pure, docs/INSIGHTS.md)
+app/patterns.py          change from usual: daily facts, two-track detector, wording (pure)
+app/insights.py          the insights endpoints' work: concerns, family tags, patterns
 app/names.py             Typesense: spoken words -> item name before ask_item (optional, 300 ms, falls back)
 app/moments.py           Typesense `moments`: a description -> the item it means (/describe); the card photo; the search copy
 app/photo.py             the moment photo (a wider crop around the item, never the full frame) and the FaceTime card picture
@@ -68,13 +72,14 @@ app/perception/frame.py  load_frame() (upright, no metadata) and crop()
 app/perception/retry.py  timeout and retries for every model call
 app/perception/filters.py   blur and duplicate checks
 app/worker/ingest.py     frame -> filters -> perception -> drop rules -> database (POST /frames)
+app/worker/wear.py       wear time: frames and moving frames per device-minute (counts only)
 app/web/                 capture.html, dashboard.html (static, no build step); room.html and vendor/ (three.js, Spark) for GET /room
 agent/                   LiveKit agent for the Chert FaceTime line (separate process)
 splat/                   the splat builder for a GPU machine (separate process, Python 3.10): AnySplat -> .spz; numpy helpers shared with the backend
 scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py, sync_moments.py, coder_setup.sh, build_room.py, splat_gpu.sh
 tests/                   pytest; tests/fixtures/frames/ holds staged frames
-supabase/migrations/     0001_save_it_memory.sql, 0002_lock_rls_auto_enable.sql (applied; frozen)
-supabase/tests/          test_memory.sql (scratch database only)
+supabase/migrations/     0001, 0002 and 0005_insights.sql (applied; frozen); 0003 (not applied)
+supabase/tests/          test_memory.sql, test_ranking.sql (0003), test_insights.sql (0005); scratch only
 supabase/seed.sql        the demo home as seeded on Supabase (template: seed.example.sql)
 supabase/dummy_data.sql  sightings in each answer state, for building the read path before the camera works
 ```
@@ -176,4 +181,4 @@ Verify against the doc before coding. Use these model ids exactly.
 
 ## Out of scope until the core demo passes
 
-The core demo is: put glasses down on camera, walk away, call the number, hear the right place. Until `docs/STATUS.md` shows that passing, do not build 3D scans, AR arrows, live pointing on FaceTime, hand tracking, object tracking across frames, remembering unregistered objects (step 12, D26 C), user accounts, or multi-home support. One home, one `HOME_ID` from the environment.
+The core demo is: put glasses down on camera, walk away, call the number, hear the right place. Until `docs/STATUS.md` shows that passing, do not build 3D scans, AR arrows, live pointing on FaceTime (except the D33 arrow, which a judge asked for), hand tracking, object tracking across frames, remembering unregistered objects (step 12, D26 C), user accounts, or multi-home support. One home, one `HOME_ID` from the environment.
