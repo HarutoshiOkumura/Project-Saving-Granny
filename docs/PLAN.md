@@ -39,10 +39,11 @@ Build the read path first, on seeded data, then the write path.
 | 05 | Perception module | 01, 04 | 2 | Fixture frames produce correct JSON |
 | 06 | Ingest worker, run on a replayed video | 05 | 2 | A recorded walk fills the timeline |
 | 07 | Capture page on the phone | 06 | 1.5 to 2 | Live frames from the lanyard phone |
-| 08 | Family dashboard | 02 | 1.5 | Timeline with crops; "tell Save It" form |
+| 08 | Family dashboard | 02 | 2.5 | Timeline with crops; "tell Save It" form; "add an item" form (D26 A) |
 | 09 | Typesense name matching | 02 | 1.5 to 2 | "specs" and "spectecles" both resolve |
 | 10 | FaceTime line (Chert + LiveKit) | 02, line confirmed | 4 to 6 | FaceTime call answers and shows the photo |
 | 11 | Harden, rehearse, record | all of the above that exist | 2 to 3 | Video and Devpost entry |
+| 12 | Remember unregistered objects (optional, D26 C) | 03, 06, 08; start only after CP1 and CP4, by 01:00 Sun | 3 to 4 | "Where's my orange bottle?" answered with a hedge and a photo, though nobody registered it |
 
 ## Who does what
 
@@ -68,15 +69,16 @@ Three tracks can start in the first hour, because they only share the schema.
 Cut from the top. Never cut below the line.
 
 1. 3D scan view, room check from the scan (D25) and AR arrow
-2. Coder egress allowlist for the worker (keep building in Coder; that alone earns the credit)
-3. Step 09, Typesense
-4. Live pointing on FaceTime (keep the last-seen photo)
-5. Step 10, FaceTime entirely
-6. Embedding lookups (`match_room`, `match_item`); the language model names the room and each category has one enrolled item
+2. Step 12, remembering unregistered objects (D26 C); keep "add an item" (D26 A), which is part of step 08
+3. Coder egress allowlist for the worker (keep building in Coder; that alone earns the credit)
+4. Step 09, Typesense
+5. Live pointing on FaceTime (keep the last-seen photo)
+6. Step 10, FaceTime entirely
+7. Embedding lookups (`match_room`, `match_item`); the language model names the room and each category has one enrolled item
 
 ---- do not cut ----
 
-7. Steps 00 to 03 and 05 to 06, the dashboard's timeline, and the recorded video
+8. Steps 00 to 03 and 05 to 06, the dashboard's timeline, and the recorded video
 
 ## Definition of demo-ready
 
@@ -93,5 +95,6 @@ Cut from the top. Never cut below the line.
 State these in the Devpost entry and the Q&A; judges reward it.
 
 - The detector is trained on, or tuned for, our own demo objects. It will not recognise another person's keys without enrolment.
+- It remembers only the items the family registered (D26). If step 12 is not built, say so: "we only remember what the family chose, so we never point you at someone else's bottle; recognising anything is next." The family can add an item from the dashboard in seconds, but only from then on.
 - Tested with staged scenes and team members, not with people who have dementia.
 - Frames are sent to model APIs before the room is known, so the no-capture rule stops storage, not transmission.

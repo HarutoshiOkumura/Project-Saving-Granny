@@ -222,3 +222,54 @@ Optional now: record the scan video while the staged table and chair are set up;
 - **Privacy:** a scan of a real home is as sensitive as the frames.
   Leave the bathroom out, keep the file in a private bucket and sign it at read time like the crops.
   Scaniverse keeps the scan on the phone; Polycam's photo mode uploads it.
+
+**D26. Items nobody registered.** A DECIDED (the user, 15 Nov: build it in step 08).
+C OPEN: decide after CP1 and CP4; start by 01:00 Sun 15 Nov or keep it for the pitch.
+
+Today Save It remembers only the items in the `items` table.
+
+- The model's answer is limited to registered names (JSON-schema enums), so an unregistered object is never stored.
+- `find_item` matches a question only on an exact item name or alias.
+  "Where's my orange bottle?" with no orange bottle registered gets `unknown_item` ("I'm sorry, which thing are you looking for?").
+- Two worse cases today: "where's my bottle?" matches the blue water bottle's alias "bottle" and answers with that one, and a look-alike can be filed as a registered item.
+  In CP3 (step 06) a keyring on another person's desk became "your keys are on the table".
+- Adding an item needs no code: the camera starts looking for a new row within 30 s (the worker's context cache), and SAM 3 is prompted with the item's name until someone measures a better wording.
+  What is missing is a way to add one without SQL.
+
+We never keep full frames (hard rule), so anything the camera was not told to look for when it saw it is gone.
+That decides the difference between the two options below.
+
+| | A. Add an item | C. Remember unregistered objects |
+|---|---|---|
+| What it does | The family adds an item on the dashboard; from then on it is tracked like the others | The camera also notes everyday objects outside the list, with no owner; a question that matches no item searches those notes |
+| Answers about something nobody registered? | No. Only from the moment it is added, never about earlier | Yes, if the camera happened to see it |
+| Who has to act | The family, once per item | Nobody |
+| What is stored | Only chosen items | Every everyday object in view, other people's too |
+| Answer | Confident: "Your glasses are on the table." | Hedged: "I saw an orange bottle on the table about ten minutes ago, but I'm not sure it's yours." |
+| Effort | About 1 hour, inside step 08 | 3 to 4 hours plus re-testing: step 12 |
+
+**A, add an item (step 08).**
+
+- A dashboard form: name, colour, a short description, optional aliases and usual place.
+  `POST /api/items` (APP_TOKEN) inserts the row through `app/memory/db.py`.
+- Refuse a name or alias that is already another item's name or alias, so new items cannot create the "bottle" clash above.
+- The camera picks it up within 30 s, with no restart.
+- Optional, if time allows: take a photo of the item and let Gemini write the colour and description (staged objects only until the privacy rules are revised).
+
+**C, remember unregistered objects (step 12, optional, after the core demo).**
+
+- Gemini also reports objects from a short list of everyday categories that match no registered item, each with a free-text label ("orange water bottle").
+  Start with bottle, bag, keys, glasses, wallet and phone; the team can change the list.
+- The worker stores them as unowned sightings: `log_sighting` with `p_item` null and the label.
+  The database already supports this: unowned stays merge by label and never change a registered item's belief or absence count.
+- SAM 3 needs category prompts ("bottle", "bag", ...) so the gate opens for them.
+- A migration (`0003`) lets a question that matches no item search unowned sightings by label (word overlap or `pg_trgm`), adds `label` to the `timeline` view, and returns the match with `unknown_item` (or a new state).
+  `speak()` and `.claude/rules/voice.md` gain the hedged sentence.
+- Risks: other people's belongings.
+  CP3 already showed one (the keyring on another desk), and a hall or a care home is full of bottles, bags and keys.
+  More is stored about the surroundings, which weakens the privacy story; every such answer must be hedged and come with a photo the family can check on the dashboard.
+- A middle path: only for categories the family turns on ("any bottle"), still hedged.
+
+**Deciding on C.** Build A regardless.
+Start C only after CP1 (a real call answers) and CP4 (live camera) pass, and not later than 01:00 on Sun 15 Nov, so it can be re-tested and rehearsed before the 05:00 freeze.
+If it has not started by then, keep it as the next step in the pitch: "we only remember what the family chose, so we never point you at someone else's bottle; recognising anything is next."

@@ -159,4 +159,4 @@ Verify against the doc before coding. Use these model ids exactly.
 
 ## Out of scope until the core demo passes
 
-The core demo is: put glasses down on camera, walk away, call the number, hear the right place. Until `docs/STATUS.md` shows that passing, do not build 3D scans, AR arrows, live pointing on FaceTime, hand tracking, object tracking across frames, user accounts, or multi-home support. One home, one `HOME_ID` from the environment.
+The core demo is: put glasses down on camera, walk away, call the number, hear the right place. Until `docs/STATUS.md` shows that passing, do not build 3D scans, AR arrows, live pointing on FaceTime, hand tracking, object tracking across frames, remembering unregistered objects (step 12, D26 C), user accounts, or multi-home support. One home, one `HOME_ID` from the environment.

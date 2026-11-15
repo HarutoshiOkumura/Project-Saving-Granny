@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov, 21:35 EST
+Last updated: Sat 14 Nov, 22:10 EST
 
 ## Steps
 
@@ -16,10 +16,11 @@ Last updated: Sat 14 Nov, 21:35 EST
 | 05 | Perception module | done | `perceive(frame, context, empty_look=)` in `app/perception/`: SAM 3 gate, then Gemini (thinking `low`, resolution `high`, no beliefs, `store=False`), SAM 3 box swapped in at IoU 0.5. SAM 3 failure fails open; Gemini failure gives `perception=None`. `apply_drop_rules()`, `load_frame()` (EXIF rotation, no metadata), `crop()`, shared retries. Live on all 17 fixtures: **17/17 fully correct** (room, landmark, item), all 12 crop boxes from SAM 3. 101 new tests (214 total) incl. an offline replay of the recorded live answers. The bake-off now imports the moved schema, prompt and drop rules (its cache still hits) |
 | 06 | Ingest worker | done | `POST /frames` (Bearer `APP_TOKEN`, replies 202, works in the background) -> `app/worker/ingest.py`: blur and duplicate filters, context and name-to-id map (cached 30 s), `perceive()`, drop rules (no-capture rooms from the `rooms` table), observation upsert on the idempotency key, crop upload, `log_sighting`, `mark_absent`; one log line per frame with status and ms per stage. At most 2 Gemini calls in flight plus a line one frame long per device (a newer frame replaces the waiting one). `scripts/replay_video.py --interval`. 66 new tests (280 total). CP3 below |
 | 07 | Capture page | todo | Send a JPEG every **0.5 s** (D10) to `POST /frames` as multipart `frame`, `device_id`, `captured_at` (ISO 8601 with zone), header `Authorization: Bearer <APP_TOKEN>`. Long side at most 1920 px |
-| 08 | Dashboard | todo | |
+| 08 | Dashboard | todo | Now includes "add an item" (D26 A, about 1 h more): a form and `POST /api/items` that refuses names or aliases that clash. Show a sighting with no item as "unregistered object" |
 | 09 | Typesense | todo | optional |
 | 10 | FaceTime | todo | optional; blocked on D4. The agent calls the backend's `GET /find` (step 02), never Supabase. Build against `supabase/dummy_data.sql` (rewritten 14 Nov for the classroom names) |
 | 11 | Harden and record | todo | |
+| 12 | Unregistered objects | todo | optional (D26 C, `/step-12-unregistered`). Start only after CP1 and CP4 pass and by 01:00 Sun; otherwise it is a "next step" in the pitch |
 
 State is one of: todo, doing, done, stubbed (works with fake data), blocked (say on what).
 
@@ -84,6 +85,8 @@ Bake-off, 14 Nov (8 close-ups, 4 medium, 5 empty; frames at 1920 px; box hit = I
 Every Gemini run had the room right on every frame, no stray items, and every empty landmark listed in view. All Gemini misses were keys frames: the seeded description named an orange lanyard the keys do not have. With the description fixed (last row), nothing was missed.
 
 ## Open questions for the humans
+
+- **D26 C (remember unregistered objects): decide by 01:00 Sun**, once CP1 and CP4 pass. D26 has both options, the risks (other people's things, as CP3's keyring showed) and the pitch line if it is not built. "Add an item" (A) is in step 08 either way.
 
 - **Frames to add later (deferred 14 Nov to save time):** about 6 medium shots (SAM 3's weak spot), 2 with an item in a hand (`in_hand` is untested), 1 of the bathroom corner (no-capture rule), 1 with an item on a different table. Name them like the others; only new frames cost calls.
 - **One chair:** the frames use two chairs (the gray stool and a blue-cushioned one). D1 says stage one.
