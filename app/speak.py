@@ -9,13 +9,22 @@ Where the rules are silent:
 """
 
 import math
+import re
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 from app.memory.schema import FindResult, Place
 
-FALLBACK = "I'm not sure, let me check with your family."
+FALLBACK = "I'm not sure right now."
 UNKNOWN_ITEM = "I'm sorry, which thing are you looking for?"
+UNKNOWN_NAMED = "I don't know your {thing} yet, but your family can teach me."
+# Dropped from `heard` before naming it back ("where is my wallet" -> "wallet"). One or two words
+# left are the thing; anything else means we did not catch it, so ask. Keep in step with
+# FILLER in agent/saveit.mjs.
+FILLER_WORDS = frozenset(
+    "where wheres where's is are my the did i put find lost please can you help me have seen your "
+    "a an to look for looking it that this thing things something stuff um uh er hmm".split()
+)
 
 RELATION_WORDS = {"on": "on", "in": "in", "under": "under", "next_to": "next to"}
 UNKNOWN_RELATION = "near"
@@ -43,7 +52,7 @@ def speak(result: FindResult, now: datetime) -> str:
     """The one sentence the caller hears. `now` must be timezone-aware."""
     match result.state:
         case "unknown_item":
-            sentence = UNKNOWN_ITEM
+            sentence = _unknown(result)
         case "never_seen":
             sentence = _never_seen(result)
         case "seen":
@@ -56,6 +65,13 @@ def speak(result: FindResult, now: datetime) -> str:
 
 
 # ---------- one template per state ----------
+
+
+def _unknown(result: FindResult) -> str:
+    """Name the thing back when we caught it clearly, so the caller knows they were heard."""
+    heard = (result.heard or "").lower()
+    words = [w for w in re.findall(r"[a-z']+", heard) if w not in FILLER_WORDS]
+    return UNKNOWN_NAMED.format(thing=" ".join(words)) if 1 <= len(words) <= 2 else UNKNOWN_ITEM
 
 
 def _seen(r: FindResult, now: datetime) -> str | None:
@@ -101,7 +117,7 @@ def _never_seen(r: FindResult) -> str | None:
     usual = _usual(r.usual)
     if usual:
         return f"I haven't seen your {r.item} yet, but {_lives(r.plural)} {usual}."
-    return f"I haven't seen your {r.item} yet, so let me check with your family."
+    return f"I haven't seen your {r.item} yet."
 
 
 # ---------- pieces ----------

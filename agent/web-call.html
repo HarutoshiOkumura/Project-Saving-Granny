@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Find It test call</title>
+  <style>
+    :root { color-scheme: dark; --bg: #0b1418; --text: #f2f5f6; --muted: #a9bcc2; --go: #1b7f45; --stop: #8c1d18; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 20px/1.5 system-ui, -apple-system, sans-serif; }
+    main { width: min(760px, 100% - 32px); margin: 32px auto; display: grid; gap: 18px; }
+    h1 { margin: 0; font-size: 32px; }
+    p { margin: 0; }
+    .note { color: var(--muted); font-size: 17px; }
+    /* FaceTime on an iPhone showed the agent's 16:9 video at about 3:2, cutting the sides: cover-crop to match. */
+    .screen { aspect-ratio: 3 / 2; background: #000; border-radius: 18px; overflow: hidden; }
+    .screen video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .screen.full { aspect-ratio: 16 / 9; }
+    .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+    button { font: inherit; font-weight: 600; min-height: 72px; padding: 0 32px; border: 0; border-radius: 999px; cursor: pointer; color: #fff; }
+    button:disabled { opacity: .55; cursor: default; }
+    #call { background: var(--go); }
+    #hangup { background: var(--stop); }
+    label { color: var(--muted); font-size: 17px; display: flex; gap: 8px; align-items: center; }
+    #status { min-height: 1.5em; }
+    #log { font: 15px/1.5 ui-monospace, monospace; color: var(--muted); white-space: pre-wrap; max-height: 9em; overflow: auto; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Find It test call</h1>
+  <p class="note">The same agent as the FaceTime line, from this laptop's microphone. Uses no Chert minutes. Needs the backend and <code>npm start</code> running.</p>
+  <div class="screen" id="screen"><video id="card" autoplay playsinline muted></video></div>
+  <div class="row">
+    <button id="call">Call Find It</button>
+    <button id="hangup" hidden>Hang up</button>
+    <label><input type="checkbox" id="crop" checked> Crop like an iPhone</label>
+  </div>
+  <p id="status" role="status" aria-live="polite">Ready.</p>
+  <div id="log" aria-label="Call events"></div>
+</main>
+<script src="/livekit-client.js"></script>
+<script>
+  const { Room, RoomEvent, Track } = LivekitClient;
+  const $ = id => document.getElementById(id);
+  let room = null;
+  const say = text => { $('status').textContent = text; };
+  const note = text => { $('log').textContent += `${new Date().toLocaleTimeString()}  ${text}\n`; $('log').scrollTop = 1e9; };
+
+  $('crop').onchange = () => $('screen').classList.toggle('full', !$('crop').checked);
+
+  $('call').onclick = async () => {
+    $('call').disabled = true;
+    say('Starting a test room...');
+    try {
+      const res = await fetch('/token', { method: 'POST' });
+      if (!res.ok) throw new Error(await res.text());
+      const { url, token, room: name } = await res.json();
+      room = new Room();
+      room.on(RoomEvent.ParticipantConnected, p => { note(`joined: ${p.identity}`); say('Find It is here. Try "Where are my glasses?"'); });
+      room.on(RoomEvent.TrackSubscribed, (track, pub, p) => {
+        note(`${track.kind} from ${p.identity}`);
+        if (track.kind === Track.Kind.Video) track.attach($('card'));
+        if (track.kind === Track.Kind.Audio) document.body.appendChild(track.attach());
+      });
+      room.on(RoomEvent.AudioPlaybackStatusChanged, () => { if (!room.canPlaybackAudio) say('Click anywhere to hear Find It.'); });
+      room.on(RoomEvent.Disconnected, () => { note('call ended'); say('Call ended.'); reset(); });
+      await room.connect(url, token);
+      await room.startAudio();
+      await room.localParticipant.setMicrophoneEnabled(true);
+      note(`in ${name}`);
+      say('Waiting for Find It to join...');
+      $('hangup').hidden = false;
+    } catch (err) {
+      say(`Could not start: ${err.message}`);
+      reset();
+    }
+  };
+  document.addEventListener('click', () => room?.startAudio());
+  $('hangup').onclick = () => room?.disconnect();
+
+  function reset() {
+    $('call').disabled = false;
+    $('hangup').hidden = true;
+    document.querySelectorAll('audio').forEach(a => a.remove());
+    $('card').srcObject = null;
+    room = null;
+  }
+</script>
+</body>
+</html>

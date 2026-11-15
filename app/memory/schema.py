@@ -10,6 +10,19 @@ Channel = Literal["phone", "facetime", "web"]
 State = Literal["seen", "carried", "not_there_anymore", "never_seen", "unknown_item"]
 
 
+class Item(BaseModel):
+    """One enrolled item and the other words for it, as `db.list_items` reads them."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    name: str
+    aliases: list[str] = []
+    category: str | None = None  # the detector's class: items of one category are look-alikes
+    color: str | None = None
+    description: str | None = None
+
+
 class Place(BaseModel):
     """`usual` ({room, landmark, pct}) or `previous` ({room, landmark, minutes_ago})."""
 

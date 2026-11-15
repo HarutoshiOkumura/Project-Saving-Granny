@@ -13,6 +13,12 @@ Read these when a step touches them, not before:
 - `docs/PLAN.md`: build order, time boxes, checkpoints, cut order
 - `docs/DECISIONS.md`: open choices and their defaults. If a step depends on an undecided item, use the default and record that in STATUS.
 - `docs/SUPABASE.md` and `docs/ROBOFLOW.md`: exact setup steps for the humans
+- `docs/RETRIEVAL.md`: rank_item, record_miss, speak() rules (read side)
+- `docs/CHERT.md`: FaceTime agent setup and call rules
+- `docs/TYPESENSE.md`: search layer, exact API syntax, prize criteria
+- `docs/DASHBOARD.md`: GUI and voice accessibility constants, pages, privacy
+- `docs/SPONSORS.md`: prizes, judging, Coder, Gemini, pitch facts
+- `docs/CODER.md`: working in a Coder workspace (`$CODER` is `true`): setup script, no Docker, no public ports, only `/home/coder` persists
 
 ## Architecture
 
@@ -44,6 +50,7 @@ app/memory/schema.py     Pydantic models for what the memory functions return (F
 app/speak.py             find_item JSON -> one spoken sentence (pure, unit-tested)
 app/ask.py               one question: ask_item, speak(), 2 s timeout, fallback, log line (for /find and voice)
 app/auth.py              the APP_TOKEN check for /frames (and later the dashboard)
+app/names.py             Typesense: spoken words -> item name before ask_item (optional, 300 ms, falls back)
 app/voice/vapi.py        Vapi tool webhook
 app/perception/schema.py Pydantic models for the perception result, boxes, the Gemini JSON schema
 app/perception/detector.py  Roboflow calls (SAM 3, the gate and crop boxes)
@@ -55,7 +62,7 @@ app/perception/filters.py   blur and duplicate checks
 app/worker/ingest.py     frame -> filters -> perception -> drop rules -> database (POST /frames)
 app/web/                 capture.html, dashboard.html (static, no build step)
 agent/                   LiveKit agent for the Chert FaceTime line (separate process)
-scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py
+scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py, coder_setup.sh
 tests/                   pytest; tests/fixtures/frames/ holds staged frames
 supabase/migrations/     0001_save_it_memory.sql, 0002_lock_rls_auto_enable.sql (applied; frozen)
 supabase/tests/          test_memory.sql (scratch database only)
@@ -70,7 +77,7 @@ uv sync                                              # install (Python 3.12)
 uv run uvicorn app.main:app --reload --port 8000     # run the API
 uv run pytest -q                                     # unit tests
 uv run ruff check . && uv run ruff format .          # lint and format
-# database tests: scratch Postgres only, never the Supabase project
+# database tests: scratch Postgres only, never the Supabase project (needs Docker: a laptop, not a Coder workspace)
 docker run --name saveit-pg -e POSTGRES_PASSWORD=pw -p 54329:5432 -d pgvector/pgvector:pg16
 P=postgresql://postgres:pw@localhost:54329          # or: docker start saveit-pg
 psql $P/postgres -qc "drop database if exists saveit_test" -c "create database saveit_test"
@@ -126,6 +133,7 @@ The model may only answer with names from the lists (use JSON-schema enums built
 - **Never store a full frame.** Store a tight crop of the item, in the private `crops` bucket, and sign URLs at read time.
 - **Never write anything for a room with `capture_allowed = false`.** If perception says the room is one, drop the frame: no crop, no row.
 - **Never commit secrets.** Keys live in `.env` (gitignored). The Supabase secret key (`SUPABASE_SECRET_KEY`, `sb_secret_...`, which replaces the legacy service-role key) is backend-only and must never appear in `app/web/`.
+- **One env file per process, never mixed.** The root `.env` is the backend's (template `.env.example`; `app/config.py` reads it by path). `agent/.env.local` is the FaceTime agent's (template `agent/.env.example`; `chert dev` reads it too), and `agent/env.mjs` makes it win over the terminal's variables. `AGENT_NAME`, `BACKEND_URL` and `FAMILY_NAME` go only in `agent/.env.local`; if both files have `LIVEKIT_*`, keep them identical. The agent never holds `SUPABASE_*` keys.
 - **Never run `supabase/tests/test_memory.sql` against the Supabase project.** It needs an empty database and inserts fixed ids.
 - **Never insert into `sightings` directly, even for dummy data.** Load `supabase/dummy_data.sql`, or call `log_sighting` twice per stay with different `p_seen_at`; one call stays tentative and never answers. Details: "Dummy data" in `.claude/rules/memory-db.md`.
 - **Never edit an applied migration.** `0001` and `0002` are applied to Supabase. Add the next numbered file (`0003_*.sql`), and re-run the database tests on scratch Postgres first.

@@ -49,27 +49,27 @@ Full tables: `docs/STATUS.md` and `uv run python -m scripts.bakeoff` (cached, fr
 **D4. Does the Chert line carry caller camera and agent video?** OPEN, ask Chert staff
 This decides whether step 10 shows a photo or is audio only. Also confirm the per-call time cap and that one line means one call at a time.
 
-**D5. Where does the backend run, and what is its public HTTPS address?** DECIDED (the team, 14 Nov: MacBook Pro and iPhone 17; the rest is Claude Code's plan, not yet tried)
+**D5. Where does the backend run, and what is its public HTTPS address?** DECIDED (the team, 14 Nov: iPhone 17; changed by Tom, 14 Nov 20:50: the backend runs in a workspace on the event's Coder deployment, not on the MacBook; the rest is Claude Code's plan, not yet tried)
 Vapi needs a public HTTPS URL for the tool.
 The phone needs HTTPS to open the camera.
 
-- **Machine:** the team's MacBook Pro runs the backend during the demo, inside a Coder workspace (D6).
+- **Machine:** a Coder workspace on the event's hosted deployment (D6, `docs/CODER.md`): Tom's `save-it` unless the team picks another. Laptops only edit and run the `coder` CLI.
 - **Phone:** the lanyard phone is an iPhone 17, using Safari.
 - **Public address:** a Cloudflare Quick Tunnel started inside the workspace.
   `cloudflared tunnel --url http://localhost:8000` prints a `https://<random>.trycloudflare.com` address; put it in `PUBLIC_BASE_URL`.
-- **Why this shape:** Coder is not in the path a call takes, so a Coder hiccup cannot drop a call once the workspace is running.
-  Coder's docs do not say whether its own built-in tunnel can serve a public port reliably, so it is not used for that.
+- **Why this shape:** Coder's own port sharing cannot serve the public: the deployment caps sharing at `owner` and its license enforces the cap (checked 14 Nov).
+  A call goes phone service -> Cloudflare -> the workspace pod, so a Coder dashboard hiccup does not drop a call; a stopped workspace does.
 - **From the docs (checked 14 Nov):** a Quick Tunnel's hostname changes on every run and stops working when the process stops.
   It allows 200 in-flight requests, has no Server-Sent Events and no uptime guarantee.
   Web traffic to a workspace port does not count as Coder activity; an open editor, terminal or SSH session does.
 
 Before every test run and the demo:
 
-1. Plug in the Mac and run `caffeinate -dims` in a terminal for the whole session.
-2. Turn autostop off for the workspace (template "Default autostop" off, or `coder schedule stop <workspace> manual`), then restart the workspace, because schedule changes apply on the next build.
+1. `coder list` shows the workspace running. It stops 40 hours after it starts and users cannot change that; a restart starts a new 40 hours.
+2. Keep one VS Code window or `coder ssh <workspace>` session open to it.
 3. Start `cloudflared` once and leave it running; restart only the API if needed.
    Every new tunnel address must go into three places: `.env`, the Vapi tool's server URL, and the capture page bookmark on the iPhone.
-4. One person owns the Mac during judging: (name).
+4. One person owns the workspace during judging: (name).
 
 > **⚠ UNVERIFIED: none of the checks below has been tried yet.**
 > Run all of them in the first end-to-end test (step 03's CP1 at the latest) and write each result in `docs/STATUS.md`.
@@ -77,9 +77,9 @@ Before every test run and the demo:
 
 | # | Assumption | How you notice it failed | Fallback |
 |---|---|---|---|
-| A1 | The venue network lets `cloudflared` connect out. | `cloudflared` prints connection errors and no `trycloudflare.com` address, or `curl <address>/health` from a phone on cellular does not return `{"ok":true}`. | Put the Mac on a teammate's phone hotspot (not the lanyard iPhone) and restart `cloudflared` (then step 3 above). |
-| A2 | Coder runs a Docker workspace on the Mac, and the API starts in it. | The workspace shows Failed or Stopped in the Coder dashboard, or `curl localhost:8000/health` inside the workspace fails. | Run the API on the Mac itself (`uv run uvicorn app.main:app --port 8000`) with `cloudflared` on the Mac. Everything still works, but drop the Coder sentence from the pitch (D6). |
-| A3 | Autostop is off, so the workspace keeps running with nobody's editor open. | The workspace page in the Coder dashboard shows a stop time. | Keep a `coder ssh <workspace>` session open in a Mac terminal during judging; an open session counts as activity. |
+| A1 | The workspace's network lets `cloudflared` connect out. | `cloudflared` prints connection errors and no `trycloudflare.com` address, or `curl <address>/health` from a phone on cellular does not return `{"ok":true}`. | Run the API and `cloudflared` on a laptop (A2's fallback); on venue Wi-Fi that fails too, use a teammate's phone hotspot (not the lanyard iPhone). |
+| A2 | The workspace runs and the API starts in it. | `coder list` shows it stopped or failed, or `curl localhost:8000/health` inside the workspace fails. | Run the API on a laptop (`uv run uvicorn app.main:app --port 8000`) with `cloudflared` there (`brew install cloudflared`). Everything still works; say Coder only for development (D6). |
+| A3 | The workspace is inside its 40 hours. | The workspace page in the Coder dashboard shows a stop time before judging ends. | `coder restart <workspace>` (a new 40 hours), then start the API and the tunnel again (step 3). |
 | A4 | The address in Vapi matches the running tunnel. | A call gets silence or the fallback sentence, and the Vapi call log shows a failed tool request. | Copy the current `trycloudflare.com` address into the Vapi tool's server URL and `.env`, and reopen the capture page on the iPhone. |
 | A5 | Answers stay fast through the tunnel. | `curl -s -o /dev/null -w '%{time_total}\n' <address>/health` from a phone on cellular or another network takes more than 1 s. | Try the hotspot (A1). If it is still slow, note it in STATUS for step 11. |
 | A6 | Safari on the iPhone 17 opens the camera on the tunnel address. | The capture page shows a camera error, or the permission prompt never appears. | Settings > Apps > Safari > Camera: Allow, and open the page in Safari itself, not inside another app. For the video, use the replay path (CP4 in `PLAN.md`). |
@@ -87,7 +87,9 @@ Before every test run and the demo:
 **D6. What counts as using Coder?** DECIDED (the team, 14 Nov)
 Everything that touches camera frames runs inside a Coder workspace.
 In practice that is the whole backend, because `POST /frames` lives in the same app as the voice tools (D5).
-We run our own open-source Coder server on the demo MacBook with a Docker template, so we are the admins and no license limits apply.
+We use the event's hosted deployment (`https://coder.c1.workshop.cdr.dev`, template `tech-stack-builder`), one workspace per teammate.
+Changed by Tom, 14 Nov 20:50, from a self-hosted server on the MacBook: the hosted one needs no setup, runs off the venue Wi-Fi, and needs no ruling on whether self-hosting counts.
+Setup, limits and features: `docs/CODER.md`.
 Take a screenshot of the running workspace for Devpost.
 
 How to say it (pitch, video, Devpost):
@@ -100,9 +102,9 @@ How to say it (pitch, video, Devpost):
 - The egress allowlist is item 2 on the cut list in `PLAN.md`.
   If it gets built, add "the workspace can only reach our database and the two model providers", and remember it must also let `cloudflared` out (D5).
   If it is cut, leave that sentence out.
+  Agent Firewall (`boundary`) is turned on for the deployment, and the workspace kernel (6.12) supports its `landjail` backend.
 
-> **⚠ UNVERIFIED: whether the Coder table counts a self-hosted Coder server.**
-> Ask them. If only their hosted deployment counts, update D5 and this entry before step 03.
+> Ask the Coder table what judges check for the track (`docs/CODER.md`, "Open").
 
 ## Settle before step 05
 
@@ -199,7 +201,37 @@ Every call also sends `disable_model_monitoring: true`. That covers monitoring, 
 
 **D22. Measuring it.** Default metric for the write-up: on the fixture set, the share of put-down events where `find_item` then returns the right landmark. Report the number, however small the set.
 
-**D23. Speech stack for the FaceTime agent.** Default: whatever the Chert starter ships with. Adding another speech provider means another key and another failure point.
+**D23. Speech stack for the FaceTime agent.** DECIDED 14 Nov (Tom): Gemini Live, not the starter's OpenAI Realtime. Reason: MLH Gemini credits, one Google key for voice and later vision/captions. Model `gemini-2.5-flash-native-audio-preview-12-2025` via `@livekit/agents-plugin-google@1.8.0`. Do not use a model with "3.1" in its name: that plugin version disables mid-session updates for them, so `generateReply` (the greeting) throws and Chert ends the call. Gemini Live in this plugin ignores video frames (`pushVideo` is empty); caller vision needs a separate vision call.
+
+## Settle for the read side (added 14 Nov; renumbered from D24-D29 at the merge, since Haru's D24-D26 were already on main)
+
+**D27. Which function do the voice tools call?** OPEN
+Default: `rank_item` (0003). It also returns `find_item`'s answer under `find`. "Not there" → `record_miss`.
+
+**D28. Typesense's job.** OPEN (replaces D18's default)
+Default: a search layer synced from Postgres. It covers:
+- names and aliases with synonyms and typo tolerance
+- meaning-based matching
+- facts
+- the dashboard's union and NL search
+- no-hit analytics
+- scoped keys
+
+Postgres stays the source of truth.
+
+**D29. Life facts ("Who is June?").** OPEN
+Default: a `facts` collection in Typesense, written from the dashboard. The agent's `recall_life_fact` searches it; the patient key sees patient-visible facts only.
+
+**D30. Main voice channel.** OPEN
+Default: Chert FaceTime (sponsor prize, caller video, agent video). The Vapi phone line only if time remains.
+
+**D31. FaceTime agent language.** OPEN (updates D19)
+Verified: `chert new --video` is a JavaScript starter (Node 22.12+, `OPENAI_API_KEY`), and a Python agent works via `chert dev --agent NAME`.
+Default: the JS starter, with tools that call our backend over HTTP.
+DECIDED 14 Nov (Tom): JS video starter in `agent/` (agent name `save-it`), Gemini Live (D23), tools in `agent/saveit.mjs` calling `BACKEND_URL`; contract in `docs/CHERT.md`.
+
+**D32. LLM for Typesense NL search and RAG.** OPEN
+Default: Gemini (`gemini-3.5-flash`, billing-enabled key). Without a key, skip NL and RAG.
 
 ## After the core demo passes
 
@@ -263,7 +295,7 @@ That decides the difference between the two options below.
 - The worker stores them as unowned sightings: `log_sighting` with `p_item` null and the label.
   The database already supports this: unowned stays merge by label and never change a registered item's belief or absence count.
 - SAM 3 needs category prompts ("bottle", "bag", ...) so the gate opens for them.
-- A migration (`0003`) lets a question that matches no item search unowned sightings by label (word overlap or `pg_trgm`), adds `label` to the `timeline` view, and returns the match with `unknown_item` (or a new state).
+- A migration (`0004`; `0003` is Tom's ranked search) lets a question that matches no item search unowned sightings by label (word overlap or `pg_trgm`), adds `label` to the `timeline` view, and returns the match with `unknown_item` (or a new state).
   `speak()` and `.claude/rules/voice.md` gain the hedged sentence.
 - Risks: other people's belongings.
   CP3 already showed one (the keyring on another desk), and a hall or a care home is full of bottles, bags and keys.

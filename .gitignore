@@ -19,7 +19,7 @@ build/
 # Local caches (bake-off responses, model outputs)
 .cache/
 
-# Node (only if someone installs JS tooling; the app itself is Python)
+# Node (agent/, the Chert FaceTime agent; the app itself is Python)
 node_modules/
 
 # Supabase CLI local state

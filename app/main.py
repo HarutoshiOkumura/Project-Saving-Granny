@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, UploadFile
 from pydantic import AwareDatetime, BaseModel
 
-from app.ask import Answer, ask
+from app.ask import Answer, Known, ask, snapshot
 from app.auth import require_app_token
 from app.memory.schema import Channel
 from app.worker.ingest import ingest
@@ -33,6 +33,12 @@ async def find(
     channel: Channel = "web",
 ) -> Answer:
     return await ask(item, channel)
+
+
+@app.get("/snapshot")
+async def snapshot_route() -> list[Known]:
+    """Every item's current answer, for the FaceTime agent at call start. Logs no questions."""
+    return await snapshot()
 
 
 @app.post("/frames", status_code=202, dependencies=[Depends(require_app_token)])

@@ -3,6 +3,10 @@
 The memory functions go through `rpc(name, params)`. The write path also reads the home's names
 and ids from the tables, inserts observations (there is no function for that) and uploads crops
 to the private `crops` bucket. Every call has a hard `asyncio.timeout`.
+
+On the read path, the one table read is `list_items`: item names and aliases for the Typesense
+copy (step 09) and the FaceTime agent's call-start snapshot. `find_item` is the read that logs no
+question.
 """
 
 import asyncio
@@ -16,7 +20,7 @@ from postgrest.exceptions import APIError
 from supabase import AsyncClient, AsyncClientOptions, acreate_client
 
 from app.config import get_settings
-from app.memory.schema import Channel, FindResult, HomeMap, PerceptionContext
+from app.memory.schema import Channel, FindResult, HomeMap, Item, PerceptionContext
 
 READ_TIMEOUT_S = 2.0  # the read path: a caller is waiting
 WRITE_TIMEOUT_S = 10.0  # the write path: a background task, may fail softly
@@ -82,12 +86,28 @@ async def ask_item(query: str, channel: Channel) -> FindResult:
 
 
 async def find_item(query: str) -> FindResult:
-    """The same answer as `ask_item`, logging nothing: for scripts and checks."""
+    """The same answer as `ask_item`, logging nothing: for the snapshot (which nobody asked),
+    scripts and checks."""
     params = {"p_home": _home(), "p_query": query}
     async with asyncio.timeout(READ_TIMEOUT_S):
         client = await _get_client()
         response = await client.rpc("find_item", params).execute()
     return FindResult.model_validate(response.data)
+
+
+async def list_items() -> list[Item]:
+    """Every item in this home with its aliases and looks, by name. Read-only. For the Typesense
+    copy and the snapshot (looks let the FaceTime agent ask "the blue one or the green one?")."""
+    async with asyncio.timeout(READ_TIMEOUT_S):
+        client = await _get_client()
+        response = await (
+            client.table("items")
+            .select("id,name,aliases,category,color,description")
+            .eq("home_id", _home())
+            .order("name")
+            .execute()
+        )
+    return [Item.model_validate(row) for row in response.data]
 
 
 async def perception_context(room_id: UUID | None = None) -> PerceptionContext:

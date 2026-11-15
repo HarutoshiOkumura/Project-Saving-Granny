@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov, 22:10 EST
+Last updated: Sat 14 Nov 21:48 EST: `tom/read-side` merged into `main` (Haru's steps 04 to 06 with Tom's steps 01b, 09, 10). Both work on `main` from now on.
 
 ## Steps
 
@@ -10,6 +10,7 @@ Last updated: Sat 14 Nov, 22:10 EST
 |---|---|---|---|
 | 00 | Scaffold | done | uv project (Python 3.12.15, `uv.lock` committed), ruff, package layout, `app/config.py` (`get_settings()`), `GET /health`, 10 tests. Left for humans: D5 and D6 (below) |
 | 01 | Supabase | done | `0001` (8 fixes) and `0002` applied; 75/75 checks on scratch (82/82 with Supabase roles); home seeded; private `crops` bucket; smoke test and API key checks pass; `ask_item` median 98 ms over HTTPS. Left: MCP read-only (below) |
+| 01b | Ranked search | todo | `rank_item`, `record_miss` (planning chat): 59/59 checks against the original 0001, not the applied one. Renumbered to `0003` (Haru's `0002` is applied). Re-test on scratch against the applied 0001 (pinned `search_path`, explicit grants, test section 25), then apply |
 | 02 | Find API and speak() | done | `GET /find?item=...&channel=web` -> `app.ask.ask()` -> `db.ask_item` + `speak()`; 80 new tests (90 total). Live on Supabase: "my specs" -> "I last saw your glasses on the kitchen counter about forty minutes ago." 20 calls: median 50 ms, worst 114 ms; first call after a restart 115 to 160 ms (one 865 ms outlier, likely cold DNS). Dead database: fallback at 2.0 s; bad hostname: 46 ms. Smoke rows deleted |
 | 03 | Phone voice | todo | Call `app.ask.ask(item, "phone")`, not `db.ask_item` + `speak()`: the 2 s timeout, fallback and log line are already there. `/find` has no auth yet; once the tunnel is up anyone can query it, so add a token check then |
 | 04 | Detector bake-off | done | CP2 passes zero-shot (table below, D3). `scripts/bakeoff.py` (cached in `.cache/bakeoff/`), 17 frames renamed to the pattern, hand-drawn boxes in `tests/fixtures/frames/boxes.json`, `db.perception_context()` + `PerceptionContext`, Pillow added; 23 new tests (113 total). Keys description fixed on Supabase and in `seed.sql`. Fixtures are 1920 px copies. Deferred by the team to save time: the extra frames (below) |
@@ -17,8 +18,8 @@ Last updated: Sat 14 Nov, 22:10 EST
 | 06 | Ingest worker | done | `POST /frames` (Bearer `APP_TOKEN`, replies 202, works in the background) -> `app/worker/ingest.py`: blur and duplicate filters, context and name-to-id map (cached 30 s), `perceive()`, drop rules (no-capture rooms from the `rooms` table), observation upsert on the idempotency key, crop upload, `log_sighting`, `mark_absent`; one log line per frame with status and ms per stage. At most 2 Gemini calls in flight plus a line one frame long per device (a newer frame replaces the waiting one). `scripts/replay_video.py --interval`. 66 new tests (280 total). CP3 below |
 | 07 | Capture page | todo | Send a JPEG every **0.5 s** (D10) to `POST /frames` as multipart `frame`, `device_id`, `captured_at` (ISO 8601 with zone), header `Authorization: Bearer <APP_TOKEN>`. Long side at most 1920 px |
 | 08 | Dashboard | todo | Now includes "add an item" (D26 A, about 1 h more): a form and `POST /api/items` that refuses names or aliases that clash. Show a sighting with no item as "unregistered object" |
-| 09 | Typesense | todo | optional |
-| 10 | FaceTime | todo | optional; blocked on D4. The agent calls the backend's `GET /find` (step 02), never Supabase. Build against `supabase/dummy_data.sql` (rewritten 14 Nov for the classroom names) |
+| 09 | Typesense | done | Keyword only (no embeddings, ~180 MB RAM). `app.ask.ask()` calls `names.resolve()` before `ask_item`, so /find and the FaceTime agent both get it; any failure, or 300 ms, falls back to the raw words. A hit counts only if every word of the name or of one alias matched ("house phone" stays unknown). Typo lengths count the word stem, tuned to 5 and 8 letters so "nurse" does not become "purse". Live: "spectecles", "my reading glases", "black reading glasses", "car keys", "bags", "water botle" resolve in ~2 ms; "dentures", "wallet", "nurse" stay unknown; /find answered with Typesense stopped (2 web rows left in `queries`). Known: "glasses case" resolves to glasses. Not built: synonym sets (aliases do that job), hybrid/NL/RAG, analytics. Run: `docker start saveit-typesense` (local 30.2, key in `.env`), then `uv run python -m scripts.sync_typesense` after items or aliases change |
+| 10 | FaceTime | doing | The agent loads `GET /snapshot` (every item's sentence, no question logged) when a call starts and answers known items in one model turn, in its own words, with places and times kept as given; transcripts drive the card and the question log through `/find`. Gemini thinking off by default. Spoken-question benchmark through LiveKit, first sound after the question: 1.8 to 3.8 s, median about 2.2 s (was 3.2 to 4.9 s); answers 3 to 4.4 s long (was 6.8 to 7.6 s). No `find_object` tool while a snapshot is loaded (Tom's test call: it answered the bag and looked it up, then repeated itself). Card marker: green about 0.3 s after the caller's voice starts (level meter on their audio, no word). No promises to contact family anywhere (tools without backends removed; `speak()` no longer says "let me check with your family"). "Bag" now asks which one, like the water bottle. Spoken name now Find It; asks "the blue one or the green one?" when two items fit (looks in the snapshot), tested by voice against Gemini at about 1.5 s a turn. Browser test calls: `npm run web-call`. "Not there" and "I put it..." still save nothing (no `/miss`, `/told`). Caller video still blocked on D4 |
 | 11 | Harden and record | todo | |
 | 12 | Unregistered objects | todo | optional (D26 C, `/step-12-unregistered`). Start only after CP1 and CP4 pass and by 01:00 Sun; otherwise it is a "next step" in the pitch |
 
@@ -45,7 +46,8 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Stubs and fakes in the code right now
 
-(none)
+- `agent/fake-home.mjs` + `speakStub()` in `agent/saveit.mjs`: the fake home, used only while `BACKEND_URL` in `agent/.env.local` is empty.
+- `agent/saveit.mjs` backend mode: `report_not_there` and `record_placement` save nothing yet (no `/miss`, `/told`): "not there" offers the usual place once, then family. Contract in docs/CHERT.md.
 
 ## Defaults taken from DECISIONS.md
 
@@ -97,8 +99,8 @@ Every Gemini run had the room right on every frame, no stray items, and every em
 - `APP_TOKEN` was empty in `.env`; step 06 filled it with a random value. The capture page (step 07) and anyone replaying need the same value.
 - **The person in IMG_2092.MOV (32 to 35 s) went to Gemini (free-tier key) and Roboflow** with the user's go-ahead on 15 Nov: the team is revising that rule. Update the hard rules in `CLAUDE.md`, D20 and D24 to the new wording so later sessions follow it.
 - **Before any real camera frame (step 06 replay of a real walk, step 07):** link a billing account to the Google AI Studio project behind `GOOGLE_API_KEY`, then turn logging off (AI Studio, Logs and Datasets; it turns on by default with billing), and check its per-model rate limit in AI Studio (the capture page sends up to 30 frames a minute). On the free tier Google may use and human-review the images (D24).
-- **⚠ D5 and D6 are decided but UNVERIFIED** (MacBook Pro, Coder workspace, Cloudflare Quick Tunnel, iPhone 17). Run checks A1 to A6 in `docs/DECISIONS.md` D5 in the first end-to-end test (step 03 at the latest) and write the results here. Each check has a fallback.
-- Humans, before step 03: Coder server and a Docker workspace on the Mac (screenshot it), the tunnel address in `PUBLIC_BASE_URL` (empty now), a name for who owns the Mac during judging, and ask the Coder table whether a self-hosted server counts (D6).
+- **Coder (Tom, 14 Nov 20:50):** we use the event's hosted deployment, not a server on the Mac (D5, D6 changed). Tom's workspace `save-it` is set up by `scripts/coder_setup.sh` (96 Python and 14 agent tests pass on the pushed `df241d5`). No public ports there, so the public address is still a Quick Tunnel, now started in the workspace. No Docker in workspaces: the database tests and the local `saveit-typesense` container stay on a laptop, so in a workspace `names.resolve()` falls back until Typesense runs another way. All in `docs/CODER.md`.
+- **⚠ D5 checks UNVERIFIED:** run A1 to A6 in `docs/DECISIONS.md` D5 in the first end-to-end test and write the results here. Humans: screenshot the workspace for Devpost, name who owns it during judging, put the tunnel address in `PUBLIC_BASE_URL`, and ask the Coder table the three questions in `docs/CODER.md`.
 - After step 01: make the Supabase MCP read-only by adding `&read_only=true` to the URL in `.mcp.json`.
 - Stage one table and one chair and keep the classroom's other tables and chairs out of frame, or "on the table" does not say which one. Want more precise spoken names ("the table by the window")? One SQL update on `landmarks.spoken_name`.
 - The bag, watch and water bottle have no usual place. One SQL update on `items.home_landmark_id` adds one.
@@ -107,6 +109,19 @@ Every Gemini run had the room right on every frame, no stray items, and every em
 - D15: keep "did you find it?"? It needs a second Vapi tool; the database side (`ask_item`, `record_outcome`) is ready.
 - Photo idea (14 Nov): keep the item's last good view instead of its best-confidence one, and a wider "context" crop that shows the landmark. Decide in step 06. Step 05 evidence (crops in `.cache/live/crops/`): close-up crops are sharp and clear (129 to 1024 px wide; the smallest is the keys on the carpet); medium-distance crops are 69 to 268 px wide and blurry, the medium watch on the chair only 69 x 108. Suggestion: keep the tight crop, and add a context crop at least about 320 px on its short side when the item box is small. Full frames stay out (hard rule).
 - `package.json`, `package-lock.json` and `node_modules/` (`@supabase/server`) appeared in the repo root at 15:36. The app is Python; delete them unless someone needs them.
+- Merged 14 Nov 21:48 EST: `tom/read-side` is in `main`; work on `main` from now on. `0003` is still not applied to Supabase. Tom's read-side decisions were renumbered D24-D29 -> D27-D32 (Haru's D24-D26 were on main first), and D26 C's planned migration is now `0004`.
+- For Haru: Supabase now holds a classroom home (table, chair, floor; bathroom no-capture; plus watch and water bottle) that is not in `seed.sql`, so `dummy_data.sql` refuses to run. Please commit the classroom seed.
+- Dummy sightings for the classroom were loaded at 19:20 (Tom asked), only through `log_sighting` and `mark_absent`: glasses on the table (chair before), keys in hand, water bottle next to the chair, watch gone from the table, bag never seen. Clear them with the rehearsal reset before real camera data.
+- For Haru: your replay (`replay-05s-line`, from 21:11) writes into the same home the FaceTime agent is tested on, so answers change mid-test and the test look-alikes (brown bag, orange water bottle, not in your scene) get marked "not there anymore". That is correct behaviour, but it makes ground truth move. A second test home (another `HOME_ID`, same schema) would keep agent tests and your pipeline apart. Worth it?
+- For Haru: look-alikes need (1) a `description` that tells them apart at enrollment ("big white mug" against "small white espresso cup"), since the agent asks with it, and (2) perception that tells them apart when logging (D8, `match_item`), or sightings land on the wrong one.
+- For Haru: Tom renamed the assistant to **Find It** (what callers hear and see on the card). Repo, docs and internal ids still say Save It. Rename the project and the Devpost entry too?
+- For Haru: Tom had two look-alikes enrolled in Supabase at 20:50 for testing "which one?": `brown bag` (alias `bag`; dummy stay on the floor) and `orange water bottle` (alias `water bottle`; dummy stays on the chair, then the table). They are not in `seed.sql` or the Typesense copy (re-run `scripts/sync_typesense.py`). Keep them for the demo, or delete them after the rehearsal reset?
+- Enroll a wallet and a phone in the demo home? On the first test call they were the first things asked for; D2 kept the demo to glasses, keys and the bag.
+- Confirm the read-side direction (D27, D28, D30 in docs/DECISIONS.md): voice uses `rank_item`, Typesense beyond name matching, Chert FaceTime as the main channel.
+- For Haru: Roboflow: applying for the academic/research plan makes all data in that workspace public on Roboflow Universe (Roboflow docs). That confirms the hard rule.
+- For Haru: Ranking trust depends on writing the right `p_event`/`p_source`: camera `seen`/`worn_cam`; family form `told`/`manual`; the person on a call `told`/`facetime_caller`.
+- For Haru: `observations.room_id` (the wearer's room) drives `rank_item`'s walking order. Keep writing it for every frame.
+- For Haru: Landmarks can set the new nullable `find_chance` (0–1) and `check_seconds`. Null means the default by kind.
 
 ## Things that differ from the docs or from CLAUDE.md
 
@@ -137,3 +152,9 @@ Every Gemini run had the room right on every frame, no stray items, and every em
 - New Supabase projects ship `public.rls_auto_enable()` (event trigger `ensure_rls`), executable by `anon`. The advisor flagged it; `0002` revokes it. An event trigger fires without EXECUTE (checked on scratch).
 - Security advisor now shows only `rls_enabled_no_policy` (INFO, 10 tables: deliberate, no role but `service_role` has a grant, so RLS is never reached) and `extension_in_public` (accepted).
 - I pinned `search_path` on every function (not in the step list) so the advisor's `function_search_path_mutable` never fires; test section 25 enforces it.
+- Chert starter is JavaScript, needs Node 22.12+ and `OPENAI_API_KEY`; a Python agent works via `chert dev --agent NAME` (npm `@trychert/facetime@0.1.0-beta.21`). Details in docs/CHERT.md.
+- Our agent uses Gemini Live instead of OpenAI (D23). `@livekit/agents-plugin-google@1.8.0` drops caller video for Gemini Live and breaks `generateReply` on "3.1" models.
+- VS Code's `python.terminal.useEnvFile` (on in Tom's settings) injects the repo `.env` into every terminal, and `node --env-file` keeps injected values: the agent registered as `my-agent` (the root `.env` value) and Chert declined calls. `agent/env.mjs` now applies `agent/.env.local` first and drops `SUPABASE_*`/`DATABASE_URL`. Since 14 Nov it is off for this workspace on Tom's Mac (`.vscode/settings.json`, gitignored) and the stray `AGENT_NAME` is out of the root `.env`; terminals opened before that still carry the old values.
+- FaceTime on an iPhone held upright crops about 100 px off each side of the agent's 1280×720 video. The card keeps text 160 px in: at most 16 characters per line at 70 px (DASHBOARD.md had said 22 at 56 px).
+- `ask_item` matches names and aliases exactly, so "where are my glasses" came back `unknown_item`. The agent now drops filler words before `/find`; Typesense would do this properly (D28).
+- voice.md `unknown_item` changed (Tom, 14 Nov): name the thing back ("I don't know your wallet yet, but your family can teach me."); ask "which thing" only when we did not catch one or two words.
