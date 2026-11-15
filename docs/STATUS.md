@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sun 15 Nov 03:20 EST: Haru's five commits (D33 scope, where to look and `photo_url` in `/snapshot`, insights with migration 0005, research notes, `docs/HANDOFF_TOM.md`) merged with Tom's step 13 (moments: FaceTime photo, search by description) and the room view (row 14). Both sides' notes follow.
+Last updated: Sun 15 Nov 03:36 EST (Tom's Claude Code): `main` is united for the demo at `60f0f8d`: the regular answer plus photo (row 13), Haru's where-to-look and insights, and guided directions (row 15, merged from `tom/guide`). The 3D room view is shelved on `tom/splat` (row 14). 519 Python and 73 agent tests pass; pushed. Before that: Sun 15 Nov 03:20 EST: Haru's five commits (D33 scope, where to look and `photo_url` in `/snapshot`, insights with migration 0005, research notes, `docs/HANDOFF_TOM.md`) merged with Tom's step 13 (moments: FaceTime photo, search by description) and the room view (row 14). Both sides' notes follow.
 **Start here: D33 in `docs/DECISIONS.md`** (the judge's asks, the plan to the 05:00 freeze, and why the FaceTime agent cannot see the camera yet).
 **Rank 3 backend done** (below). Next: `POST /locate`.
 **Tom (and Tom's agent): read `docs/HANDOFF_TOM.md` first**: merging the photo card with `photo_url`, `where_to_look` and `report_concern`.
@@ -125,6 +125,9 @@ Bake-off, 14 Nov (8 close-ups, 4 medium, 5 empty; frames at 1920 px; box hit = I
 Every Gemini run had the room right on every frame, no stray items, and every empty landmark listed in view. All Gemini misses were keys frames: the seeded description named an orange lanyard the keys do not have. With the description fixed (last row), nothing was missed.
 
 ## Open questions for the humans
+
+- **Running now on Tom's Mac (restarted 03:34 from `60f0f8d`):** the backend on port 8000 and the FaceTime agent (`save-it`), both started by a Claude Code session and gone when that session closes. To start them yourself: `uv run uvicorn app.main:app --port 8000` in the repo root and `npm start` in `agent/`. Checked after the restart: `/snapshot` gives 5 items, each with a sentence, a photo link and where to look; `/find` answers in 130 ms; `/guide` answers; `/room` is gone (404).
+- **Before filming, make one test call** (`npm run web-call`, or FaceTime): ask for the glasses and check the photo on the card, then say "help me get there". Neither the photo nor the guide has been tried on a call since the merge. With no camera frames arriving, the guide can only give its first direction ("Look for your glasses on the table in the classroom"); the closer-and-closer steps need `scripts/replay_video.py` running during the call, and that needs ffmpeg and a recording, which Tom's Mac has neither of.
 
 
 - **For Haru: Tom's Claude Code changed two of your files on 15 Nov, with Tom's go-ahead.** `app/worker/ingest.py` gained one import and one call in the sightings loop, `moments.record_soon(frame, item.box, crop_url, sighting)`: for every logged look it has the wide moment photo made and uploaded in the background (`...Z.moment.jpg` beside the crop). It is not awaited and never raises; measured cost in "Tuned values". `tests/conftest.py` sets `MOMENT_PHOTOS=false` so your ingest tests stay offline, and `tests/test_ingest.py` has two new tests for the call. To turn it off anywhere: `MOMENT_PHOTOS=false` in `.env`.
