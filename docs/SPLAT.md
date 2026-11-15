@@ -1,5 +1,13 @@
 # The room scan: splat builder and 3D room view
 
+> **Shelved 15 Nov 2026, 03:30 (Tom).** Not in the demo: on a real room the splat was too grainy
+> and did not hold together. Everything lives on this branch, `tom/splat` (worktree
+> `../Project-Saving-Granny-splat`), and is removed from `main`. The rented GPU was destroyed, so
+> nothing is billing. To bring it back: merge `tom/splat` into `main`, rent a GPU and run
+> `splat/setup_vast.sh` (below), then `scripts/splat_gpu.sh tunnel`. The three scans built from
+> Tom's lounge video are in this worktree's `.cache/` (gitignored). What would most improve it:
+> the refinement pass that was never built (gsplat, 60 to 90 s), and a slow scan of one corner.
+
 Built 15 Nov 2026 at Tom's request (D25 A). A video of the room becomes a 3D Gaussian splat in
 seconds, and `GET /room` shows it with a pin where the memory says each thing is now.
 
@@ -37,6 +45,13 @@ open "http://localhost:8000/room"                # type APP_TOKEN once, or add #
 ```
 
 - Film slowly, moving sideways, each landmark seen from at least two angles, in good light.
+- **Scan one corner, not the whole room.** 15 Nov, Tom's lounge: the first 11 s of a walk (a
+  shelf, a table, its chairs) made a crisp room; all 46 s of the same walk, the whole lounge,
+  came out smeared in its far half. 32 photos at 448 px cover a few metres well.
+- A new scan has new coordinates, so `build_room.py` clears the old pins; place them again.
+  `--out other-folder` builds beside the active room and leaves its pins alone.
+- To leave frames out (a person walked through), cut them first and pass the folder: the script
+  takes a folder of photos as readily as a video.
 - On a slow network add `--full 400000` (about 3 MB instead of 8 to 13) or `--no-full`.
 - No ffmpeg needed on a Mac: frames are cut with AVFoundation (`scripts/video_frames.swift`,
   compiled once into `.cache/bin/`). HEIC photos are converted with `sips`.

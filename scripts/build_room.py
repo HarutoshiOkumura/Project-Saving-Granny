@@ -12,12 +12,15 @@ from the video here (ffmpeg, or AVFoundation on a Mac without it), the sharpest 
 are picked, shrunk to the 448 px squares the model takes and sent in one request (about 50 KB a
 frame). The GPU answers when the small preview is ready; it is saved first, then the full file.
 The result goes to ROOM_DIR (`.cache/room/`, gitignored): `preview.spz`, `full.spz`, `scene.json`.
+A new scan has its own coordinates, so the landmark pins of the previous one are cleared
+(`landmarks.x/y/z`); place them again in `/room`.
 
 Staged rooms only: the frames go to a rented GPU, and a scan of a real home is as sensitive as
 the frames themselves (D25).
 """
 
 import argparse
+import asyncio
 import json
 import os
 import shutil
@@ -32,6 +35,7 @@ from pathlib import Path
 import httpx
 
 from app.config import get_settings
+from app.memory import db
 from splat import frames as frame_tools
 
 REPO = Path(__file__).resolve().parent.parent
@@ -139,6 +143,14 @@ def choose(photos: list[Path], frames: int) -> tuple[list[bytes], list[int]]:
         return list(pool.map(_shrink, [photos[i] for i in chosen])), chosen
 
 
+async def _clear_pins() -> int:
+    """A new scan has new coordinates, so every landmark pin of the old one is wrong now."""
+    placed = [pin for pin in await db.list_pins() if pin.position is not None]
+    for pin in placed:
+        await db.set_pin(pin.landmark_id, None)
+    return len(placed)
+
+
 def _save(folder: Path, name: str, data: bytes) -> None:
     """Whole file or nothing: the backend may be serving the old one right now."""
     partial = folder / f".{name}.part"
@@ -231,6 +243,13 @@ def main() -> None:
         _save(args.out, "scene.json", json.dumps(description).encode())
         at = mark("preview_download", at)
         marks["to_preview"] = round(at - started, 2)
+        if args.out.resolve() == settings.room_dir.resolve():  # a side build keeps the pins
+            try:
+                cleared = asyncio.run(_clear_pins())
+                if cleared:
+                    print(f"cleared {cleared} pins of the previous scan: place them again in /room")
+            except Exception as exc:  # the room is still built; say so and carry on
+                print(f"could not clear the old pins ({type(exc).__name__}): place them again")
         print(
             f"preview ready after {marks['to_preview']} s: "
             f"{scene['gaussians']['preview']:,} Gaussians, {len(preview.content) / 1e6:.1f} MB"
