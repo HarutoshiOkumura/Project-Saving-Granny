@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov, 19:27 EST
+Last updated: Sat 14 Nov, 19:50 EST
 
 ## Steps
 
@@ -12,8 +12,8 @@ Last updated: Sat 14 Nov, 19:27 EST
 | 01 | Supabase | done | `0001` (8 fixes) and `0002` applied; 75/75 checks on scratch (82/82 with Supabase roles); home seeded; private `crops` bucket; smoke test and API key checks pass; `ask_item` median 98 ms over HTTPS. Left: MCP read-only (below) |
 | 02 | Find API and speak() | done | `GET /find?item=...&channel=web` -> `app.ask.ask()` -> `db.ask_item` + `speak()`; 80 new tests (90 total). Live on Supabase: "my specs" -> "I last saw your glasses on the kitchen counter about forty minutes ago." 20 calls: median 50 ms, worst 114 ms; first call after a restart 115 to 160 ms (one 865 ms outlier, likely cold DNS). Dead database: fallback at 2.0 s; bad hostname: 46 ms. Smoke rows deleted |
 | 03 | Phone voice | todo | Call `app.ask.ask(item, "phone")`, not `db.ask_item` + `speak()`: the 2 s timeout, fallback and log line are already there. `/find` has no auth yet; once the tunnel is up anyone can query it, so add a token check then |
-| 04 | Detector bake-off | todo | Keys are in `.env` (`ROBOFLOW_API_KEY`, `GOOGLE_API_KEY`). Names decided (D1, D2) and seeded on Supabase. Waiting on staged photos in `tests/fixtures/frames/`. Candidates now include Gemini (D24) |
-| 05 | Perception module | todo | Gemini, not Claude (D24): Interactions API, `store=False`, `thinking_level` `low`, 15 s timeout, frames processed concurrently (Flash took about 7 s per image in Roboflow's evals) |
+| 04 | Detector bake-off | done | CP2 passes zero-shot (table below, D3). `scripts/bakeoff.py` (cached in `.cache/bakeoff/`), 17 frames renamed to the pattern, hand-drawn boxes in `tests/fixtures/frames/boxes.json`, `db.perception_context()` + `PerceptionContext`, Pillow added; 23 new tests (113 total). Keys description fixed on Supabase and in `seed.sql`. Fixtures are 1920 px copies. Deferred by the team to save time: the extra frames (below) |
+| 05 | Perception module | todo | Build the D3 design: SAM 3 gates Gemini. `gemini-3.6-flash`, thinking `low`, resolution `high`, no beliefs in the prompt, 10 s `asyncio.timeout`, SDK retries off (rules file). Lift `build_schema`, `build_prompt` and `stored_items` from `scripts/bakeoff.py`; they are what was measured |
 | 06 | Ingest worker | todo | Catch `22023` from `log_sighting` (room and landmark disagree) and skip the frame |
 | 07 | Capture page | todo | |
 | 08 | Dashboard | todo | |
@@ -26,7 +26,7 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 ## Checkpoints
 
 - CP1 phone call answers from seeded data: not yet (the backend half works: `GET /find` answers from Supabase)
-- CP2 detector chosen: not yet
+- CP2 detector chosen: passed 14 Nov. SAM 3 (gate and crops) + `gemini-3.6-flash` (placement), D3
 - CP3 replayed walk gives three correct answers: not yet
 - CP4 live from the lanyard phone: not yet
 
@@ -44,10 +44,32 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Tuned values
 
-(blur threshold, duplicate threshold, detector confidence, similarity cut)
+- SAM 3 gate: 0.5 on any demo item, prompts "green handbag, eyeglasses, bunch of keys, wristwatch, dark blue bottle".
+- Gemini timeout: 10 s (worst of 51 calls 7.2 s). Room cut 0.6 and item cut 0.5 unchanged: 0 false alarms with them.
+- Still guesses: blur and duplicate cuts (step 05).
+
+Bake-off, 14 Nov (8 close-ups, 4 medium, 5 empty; frames at 1920 px; box hit = IoU 0.5 with the hand-drawn box; Gemini counts after the worker's drop rules):
+
+| Candidate | Close | Medium | False alarms | Median | Worst | CP2 |
+|---|---|---|---|---|---|---|
+| YOLO-World v2-l, best wording and threshold | 6/8 | 0/4 | 0/5 | 0.16 s | | fail: glasses, keys |
+| SAM 3, descriptive wording, 0.7 | 8/8 | 2/4 | 0/5 | 0.36 s | | pass |
+| SAM 3, descriptive wording, 0.5 (the gate) | 8/8 | 3/4 | 1/5 | 0.36 s | | pass |
+| 3.6 Flash, low, high, no beliefs (placed / boxes) | 8/8 / 8/8 | 3/4 / 3/4 | 0/5 | 2.8 s | 5.6 s | pass |
+| 3.6 Flash, low, high, with beliefs | 8/8 / 8/8 | 4/4 / 4/4 | 0/5 | 2.9 s | 7.0 s | pass |
+| 3.5 Flash-Lite, low, high | 8/8 / 8/8 | 4/4 / 4/4 | 0/5 | 1.5 s | 2.3 s | pass |
+| 4 Hydrogen, low, high | 7/8 / 7/8 | 4/4 / 4/4 | 0/5 | 3.6 s | 5.0 s | fail: keys |
+| 3.6 Flash, minimal, high (close-ups only) | 7/8 | | | 2.0 s | 3.3 s | |
+| 3.6 Flash, low, medium res (close-ups only) | 8/8 | | | 2.0 s | 2.7 s | |
+| 3.5 Flash-Lite, minimal, high (close-ups only) | 7/8 | | | 1.5 s | 2.0 s | |
+| **3.6 Flash, low, high, no beliefs, after the keys fix** | 8/8 / 8/8 | 4/4 / 4/4 | 0/5 | 3.3 s | 7.2 s | pass |
+
+Every Gemini run had the room right on every frame, no stray items, and every empty landmark listed in view. All Gemini misses were keys frames: the seeded description named an orange lanyard the keys do not have. With the description fixed (last row), nothing was missed.
 
 ## Open questions for the humans
 
+- **Frames to add later (deferred 14 Nov to save time):** about 6 medium shots (SAM 3's weak spot), 2 with an item in a hand (`in_hand` is untested), 1 of the bathroom corner (no-capture rule), 1 with an item on a different table. Name them like the others; only new frames cost calls.
+- **One chair:** the frames use two chairs (the gray stool and a blue-cushioned one). D1 says stage one.
 - 3D scan (D25): judges liked the point cloud idea on 14 Nov. Plan: finish the original steps first; after CP3 and CP4, maybe A (3D view on the dashboard, 2 to 3 h, no pipeline change) and C (local room check against the scan before frames go to Gemini, 2 to 4 h more). Optional now: record the scan video while the staging is up.
 - **Before any real camera frame (step 06 replay of a real walk, step 07):** link a billing account to the Google AI Studio project behind `GOOGLE_API_KEY`, then turn logging off (AI Studio, Logs and Datasets; it turns on by default with billing), and check its per-model rate limit in AI Studio (the capture page sends up to 30 frames a minute). On the free tier Google may use and human-review the images (D24).
 - **⚠ D5 and D6 are decided but UNVERIFIED** (MacBook Pro, Coder workspace, Cloudflare Quick Tunnel, iPhone 17). Run checks A1 to A6 in `docs/DECISIONS.md` D5 in the first end-to-end test (step 03 at the latest) and write the results here. Each check has a fallback.
@@ -63,6 +85,11 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Things that differ from the docs or from CLAUDE.md
 
+- The `google-genai` SDK retries 408, 409, 429 and 5xx up to 4 times inside each call by default, and its `timeout` let one call run 94 s. The bake-off turns that off (`HttpRetryOptions(attempts=1)`) and wraps calls in `asyncio.timeout`; the rules file now says the same for step 05. On the free tier, 4 calls in flight drew a 429 storm; 1 in flight drew none.
+- `gemini-3.8-flash` timed out again on its step 04 retry (60 s). Not used.
+- Frame names: `empty_<landmark>_<nn>.jpg` added beside `empty_<room>_<nn>.jpg`, so the bake-off can check that the model lists an empty landmark in view (absence needs it). Step 04 command and `docs/ROBOFLOW.md` updated. The 17 frames were renamed to the pattern (`close_blue_waterbottle_chair.JPG` became `close_water-bottle_chair_01.jpg`; `medium_empty_*` became `empty_*`).
+- Committed fixture frames are 1920 px copies with no metadata (12.6 MB), byte for byte what the bake-off sent. The 24 MP originals, which carry GPS coordinates in their EXIF, are kept in the gitignored `tests/fixtures/frames/originals/`.
+- Roboflow's docs say Model Monitoring does not save inference images by default; every call also sends `disable_model_monitoring: true` (D20).
 - Perception switched from Claude to Gemini on 14 Nov (D24). `anthropic` is gone from the dependencies; `google-genai` 3.3.0 replaces it. `ANTHROPIC_API_KEY` became `GOOGLE_API_KEY`, and the local `.env` had its stale `PERCEPTION_MODEL=claude-haiku-5-5` replaced. `CLAUDE.md`, the perception rules, steps 00, 04, 05 and 11, `docs/ROBOFLOW.md` and D6 now say Gemini.
 - Google's docs now lead with the Interactions API; `generateContent` is legacy but supported. Interactions stores requests by default, hence `store=False` everywhere.
 - New modules not in the original layout: `app/ask.py` (one question: database, `speak()`, fallback, log line; shared by `/find` and the voice tools) and `app/memory/schema.py` (`FindResult`, `Place`). Added to the layout in `CLAUDE.md`.

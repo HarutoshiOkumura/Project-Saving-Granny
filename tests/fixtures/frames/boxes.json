@@ -1,0 +1,15 @@
+{
+  "_about": "Hand-drawn boxes around the demo item, [ymin, xmin, ymax, xmax] on 0..1000 of the upright (EXIF-rotated) image, the same layout as Gemini's box_2d. Checked by eye on zoomed crops, 14 Nov 2026. Empty frames have no entry.",
+  "close_bag_table_01": [297, 53, 752, 840],
+  "close_glasses_chair_01": [452, 349, 572, 547],
+  "close_glasses_table_01": [320, 167, 650, 853],
+  "close_keys_floor_01": [350, 522, 412, 602],
+  "close_keys_table_01": [470, 347, 650, 627],
+  "close_watch_table_01": [368, 235, 678, 635],
+  "close_water-bottle_chair_01": [270, 447, 590, 551],
+  "close_water-bottle_table_01": [310, 413, 610, 553],
+  "medium_bag_floor_01": [450, 428, 550, 575],
+  "medium_keys_table_01": [436, 435, 466, 510],
+  "medium_watch_chair_01": [458, 460, 507, 507],
+  "medium_watch_table_01": [365, 605, 400, 725]
+}

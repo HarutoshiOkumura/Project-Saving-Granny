@@ -34,6 +34,9 @@ recordings/
 *.m4v
 *.webm
 tests/fixtures/frames/private/
+# Full-size originals of the staged fixtures: 24 MP each, with GPS in their EXIF. The
+# committed frames are 1920 px copies with no metadata (step 04).
+tests/fixtures/frames/originals/
 
 # Editors and OS
 .DS_Store

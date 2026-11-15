@@ -60,3 +60,56 @@ class FindResult(BaseModel):
             except (ZoneInfoNotFoundError, ValueError) as exc:
                 raise ValueError(f"unknown timezone {value!r}") from exc
         return value
+
+
+def _none_to_list(value: object) -> object:
+    """`jsonb_agg` over no rows gives null; an empty home has no beliefs, not a missing key."""
+    return [] if value is None else value
+
+
+class ContextLandmark(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    room: str
+    landmark: str
+    kind: str
+
+    @property
+    def address(self) -> str:
+        """The `places.address` form ("room > landmark") that beliefs and the schema use."""
+        return f"{self.room} > {self.landmark}"
+
+
+class ContextItem(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    item: str
+    looks_like: str = ""
+
+
+class Belief(BaseModel):
+    """One row of `item_last_seen`: where an item is believed to be. `address` is null in hand."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    item: str
+    address: str | None = None
+    in_hand: bool = False
+    status: str
+    minutes_ago: int | None = None
+
+
+class PerceptionContext(BaseModel):
+    """`perception_context` jsonb: the names the vision model may answer with, and the beliefs."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    rooms: list[str]
+    landmarks: list[ContextLandmark]
+    items: list[ContextItem]
+    beliefs: list[Belief]
+
+    @field_validator("rooms", "landmarks", "items", "beliefs", mode="before")
+    @classmethod
+    def _empty_is_a_list(cls, value: object) -> object:
+        return _none_to_list(value)

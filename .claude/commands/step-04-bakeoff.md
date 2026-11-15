@@ -14,7 +14,8 @@ Staged scenes of our own objects only. If the folder is empty, ask the humans fo
 File names carry the ground truth; ask the humans to use this pattern:
 
 - `close_<item>_<landmark>_<nn>.jpg` and `medium_<item>_<landmark>_<nn>.jpg`
-- `empty_<room>_<nn>.jpg` for frames with no demo item
+- `empty_<landmark>_<nn>.jpg` for a landmark with no demo item on it (scores whether the model lists it in view, which absence needs), `empty_<room>_<nn>.jpg` for a wide shot with no demo item
+- `tests/fixtures/frames/boxes.json` holds a hand-drawn box per item frame, `[ymin, xmin, ymax, xmax]` on 0..1000 of the upright image; add one for every new item frame
 - Inside a name, hyphens stand for spaces and underscores: `close_water-bottle_table_01.jpg`, `empty_b-school-classroom_01.jpg`. Map them back to the seeded names when scoring.
 
 ## Build

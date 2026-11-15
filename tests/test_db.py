@@ -1,8 +1,9 @@
-"""db.ask_item with a fake Supabase client: parameter names, parsing and the timeout. No network."""
+"""db functions with a fake Supabase client: parameter names, parsing, timeouts. No network."""
 
 import asyncio
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
@@ -78,3 +79,34 @@ def test_ask_item_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(TimeoutError):
         asyncio.run(db.ask_item("x", "web"))
+
+
+CONTEXT = {
+    "rooms": ["b_school_classroom", "bathroom"],
+    "landmarks": [{"room": "b_school_classroom", "landmark": "chair", "kind": "surface"}],
+    "items": [{"item": "glasses", "looks_like": "black, black reading glasses"}],
+    "beliefs": None,
+}
+
+
+def test_perception_context_calls_the_rpc_with_contract_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeClient(CONTEXT)
+    use(monkeypatch, fake)
+
+    context = asyncio.run(db.perception_context())
+
+    assert fake.calls == [("perception_context", {"p_home": HOME_ID, "p_room": None})]
+    assert context.landmarks[0].address == "b_school_classroom > chair"
+    assert context.beliefs == []  # jsonb_agg over no rows is null
+
+
+def test_perception_context_passes_the_room(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeClient(CONTEXT)
+    use(monkeypatch, fake)
+    room = "22222222-2222-2222-2222-222222222222"
+
+    asyncio.run(db.perception_context(UUID(room)))
+
+    assert fake.calls[0][1]["p_room"] == room

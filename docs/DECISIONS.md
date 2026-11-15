@@ -17,8 +17,34 @@ Items: `glasses` and `keys` (both usually on the table), `bag` (the green FRANZI
 The glasses' usual place is the table so the demo can put them elsewhere and the "not there anymore" answer can offer the table.
 Seeded from `supabase/seed.sql`. Every name here becomes an allowed answer for the vision model.
 
-**D3. Which detector?** OPEN, decided by the step 04 bake-off
-Candidates: YOLO-World zero-shot, SAM 3 text prompts, a Roboflow Instant or RF-DETR model trained on the demo items, or the language model alone. Pass rule is CP2 in `PLAN.md`. Default if nobody runs the bake-off: language model alone for placement, trained Roboflow model for boxes and crops.
+**D3. Which detector?** DECIDED (step 04 bake-off, 14 Nov, by Claude Code; the gate below answers the team's question "why does Gemini see every frame?". Change it here if you disagree)
+Pass rule, CP2 in `PLAN.md`: each item found in at least 8 of 10 close-ups, at most 1 false alarm on the empty frames.
+The set was smaller: 8 close-ups (1 or 2 per item), 4 medium, 5 empty, so "8 of 10" was applied per item as 80 percent rounded up, which means every close-up.
+A detector hit needs IoU at least 0.5 against a hand-drawn box (`tests/fixtures/frames/boxes.json`).
+Full tables: `docs/STATUS.md` and `uv run python -m scripts.bakeoff` (cached, free to re-run).
+
+- **CP2 passes zero-shot. No training needed.**
+  - SAM 3, wording "green handbag, eyeglasses, bunch of keys, wristwatch, dark blue bottle", threshold 0.7: 8/8 close-ups, 2/4 medium, 0 false alarms, 0 stray boxes, about 0.4 s.
+  - `gemini-3.6-flash` alone (thinking `low`, resolution `high`): 8/8 close-ups placed on the right landmark, 3/4 medium, 0 false alarms, room right 17/17, its own `box_2d` boxes 8/8 close-ups. Median 2.8 s, worst 7.0 s.
+    After the keys fix below: all 12 item frames placed and boxed, 0 false alarms, median 3.3 s, worst 7.2 s.
+  - YOLO-World `v2-l` fails on keys and glasses at every wording and threshold. Plain names ("keys") make SAM 3 box single keys instead of the bunch, and "reading glasses" loses the glasses.
+- **Design for step 05: SAM 3 gates Gemini.**
+  1. Every frame that passes the blur and duplicate filters goes to SAM 3 with the wording above.
+  2. Any demo item at or above 0.5 opens the gate. On the fixtures that opened all 12 item frames, each with its box on the item, and 1 of 5 empty frames (a "wristwatch" at 0.55 on bare carpet), where Gemini then reported nothing.
+  3. Gate open: Gemini places the item (room, landmark, relation, in hand). SAM 3's own label is ignored, because it called the medium-distance watch "bunch of keys". The crop uses the SAM 3 box that overlaps Gemini's `box_2d` most (IoU at least 0.5), else Gemini's box.
+  4. Gate closed: no Gemini call, except one "empty look" at most every 30 s for `mark_absent`, which ignores looks closer together than that anyway.
+  - Why: during a walk most frames hold no demo item, so Gemini calls drop from up to 30 a minute to a few, fewer frames go to Google, and the free-tier rate limit stops mattering. Cost: SAM 3 adds about 0.4 s before Gemini, well inside the 10 s budget.
+- **Gemini settings (D24): keep `gemini-3.6-flash`, thinking `low`, resolution `high`.**
+  - `gemini-3.5-flash-lite` scored as well here (12/12 placed) in 1.5 s, but its notes repeat the seeded description ("keys on an orange lanyard") for keys that have no lanyard, so it echoes the prompt instead of describing the photo. Keep it as the fallback if latency or rate limits bite.
+  - `gemini-4-hydrogen` missed the plain close-up of the keys on the table, and is slower (median 3.6 s). Not used.
+  - Thinking `minimal` missed one keys close-up. Resolution `medium` held 8/8 close-ups in 2.0 s but was not tried at medium distance, where small items need the pixels.
+  - Every Gemini miss in the bake-off was a keys frame, and every one was a total omission, not a low confidence. The seeded description said "keys on an orange lanyard"; the staged keys are a black car key fob with a few keys.
+    Fixed on 14 Nov (the team chose to change the description): `black`, `car key fob with a few keys on a ring`, on Supabase and in `seed.sql`. 3.6 Flash then found all 3 keys frames, including the medium one it had missed.
+- **Beliefs stay out of the prompt for now.**
+  - Measured: with beliefs that put an item on every landmark in the empty frames, 3.6 Flash made 0 false sightings on 5 empty frames, 0 stray items, and placed all 6 items that sat away from their believed place correctly.
+  - The one gain (the medium keys) was on a frame where the belief was true, so it cannot be told apart from suggestion.
+  - A missed frame costs one frame; a false confirmation would keep an empty landmark "occupied" and block "not there anymore", step 4 of the demo. Revisit with more empty frames.
+- **Training (`docs/ROBOFLOW.md` section 3) is optional.** It would help medium distance, SAM 3's weak spot (2/4 at 0.7). Not on the critical path.
 
 **D4. Does the Chert line carry caller camera and agent video?** OPEN, ask Chert staff
 This decides whether step 10 shows a photo or is audio only. Also confirm the per-call time cap and that one line means one call at a time.
@@ -102,7 +128,8 @@ The database refuses to store anything for them, but the frame has already been 
 
 - **Model:** `gemini-3.6-flash` (stable), set by `PERCEPTION_MODEL`.
   The step 04 bake-off also tries `gemini-3.5-flash-lite` (stable, faster, weaker) and `gemini-4-hydrogen` (the step-up); keep whichever passes CP2 with acceptable latency.
-  `gemini-3.8-flash` did not answer on our key on 14 Nov (timeouts at 20, 45 and 60 s, even for plain text); retry it once in step 04.
+  `gemini-3.8-flash` did not answer on our key on 14 Nov (timeouts at 20, 45 and 60 s, even for plain text), nor on the step 04 retry (60 s, one image). Not used.
+  Step 04 kept `gemini-3.6-flash` (D3 has the numbers).
 - **Is it good enough? Probably for the reasoning half; not proven for tight boxes on small items.** Research on 14 Nov:
   - Roboflow's Vision Evals (12 Nov 2026, 32 samples, no breakdown by object size), object identification: 3.6 Flash 99.0%, 3.8 Flash 97.9%, 3.5 Flash-Lite 84.4%, Claude Haiku 5.5 83.3%. https://playground.roboflow.com/evals/identification
   - Same evals, detection mAP@50: Hydrogen 81.0, 3.8 Flash 68.1, 3.6 Flash 57.1. SAM 3 and YOLO-World were not scored. https://playground.roboflow.com/evals/object-detection
@@ -113,13 +140,18 @@ The database refuses to store anything for them, but the frame has already been 
 - **API:** the Interactions API from the `google-genai` package (`client.aio.interactions.create`), with a JSON schema in `response_format`.
   Google calls `generateContent` legacy.
 - **Checked live on 14 Nov (text only, no images):** `gemini-3.6-flash` and `gemini-3.5-flash-lite` both returned `status` `completed` and JSON inside the enum, in 0.7 to 1.5 s.
-- **Settings to start from:** `thinking_level` `low`, image resolution at the default (`high`, 1,120 tokens), timeout 15 s, frames processed concurrently. Details in `.claude/rules/perception.md`.
+- **Settings (step 04 measured them):** `thinking_level` `low`, image resolution `high` (1,120 tokens), frames processed concurrently. Details in `.claude/rules/perception.md`.
+  - Timeout 10 s: the worst of 51 calls to 3.6 Flash with images took 7.2 s, the median about 3 s.
+  - The SDK retries 408, 409, 429 and 5xx up to 4 times inside one call by default, and the call's `timeout` did not stop one such call before 94 s.
+    Build the client with `HttpOptions(retry_options=HttpRetryOptions(attempts=1))`, wrap each call in `asyncio.timeout`, and do the 3 retries ourselves.
 - **Privacy:**
   - On the free tier Google uses API inputs, images included, "for product development and machine learning", and "human reviewers may read, annotate, and process your API input and output". On the paid tier Google does not use prompts or responses to improve its products. Source: https://aistudio.google.com/docs/terms
   - The Interactions API stores every request by default (1 day free, 55 days paid). Every call passes `store=False`. Source: https://aistudio.google.com/docs/interactions
   - On billing-enabled projects, AI Studio logs Interactions requests by default and keeps them up to 55 days, private to the project. Turn it off under Logs and Datasets in AI Studio. Source: https://aistudio.google.com/docs/logs-policy
   - So: staged test photos may use the free-tier key; real camera frames need a billing-enabled project with logging off (hard rule in `CLAUDE.md`).
-- **Rate limits:** Google shows the free-tier limits per model only in AI Studio. The capture page sends up to 30 frames a minute; check the limit there before step 07.
+- **Rate limits:** Google shows the free-tier limits per model only in AI Studio.
+  On 14 Nov the free tier refused most calls with 429 at 4 in flight, and none at 1 in flight (92 calls, about 2 to 3 s each).
+  With the SAM 3 gate (D3) the demo sends only a few frames a minute to Gemini; billing is still required for real frames (privacy, above).
 
 ## Settle before step 03
 
@@ -143,6 +175,8 @@ Default: the agent asks "Would you like me to stay on the line while you look?",
 **D19. FaceTime agent language.** Default: Python LiveKit agent, because drawing into a published video track is verified in Python. The Chert starter is Node; attaching a Python agent by dispatch name is expected to work but untested.
 
 **D20. Roboflow hosted inference and privacy.** Unverified whether hosted inference retains images. Default: staged scenes only until someone confirms with Roboflow.
+Read on 14 Nov: "Model Monitoring does not save inference images by default" (https://docs.roboflow.com/deployment/monitoring-and-analytics/model-monitoring.md); it saves them only through a Dataset Upload block or Active Learning, neither of which we use.
+Every call also sends `disable_model_monitoring: true`. That covers monitoring, not the serving infrastructure itself, so the question to Roboflow stays open.
 
 **D21. What the model may see of people.** Default: crops are padded boxes around items; the prompt forbids describing people; no face is stored.
 

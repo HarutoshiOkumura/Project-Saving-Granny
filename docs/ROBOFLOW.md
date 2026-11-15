@@ -17,6 +17,7 @@ Workspace settings, API keys. Put the private key in `.env` as `ROBOFLOW_API_KEY
    - 10 close-ups: the item 0.5 to 1 metre away as it is set down.
    - 10 medium: 1.5 to 3 metres.
    - 5 to 10 with clutter and no demo item.
+   - Name them `close_<item>_<landmark>_<nn>.jpg`, `medium_<item>_<landmark>_<nn>.jpg`, `empty_<landmark>_<nn>.jpg` or `empty_<room>_<nn>.jpg`, with hyphens for spaces and underscores (`close_water-bottle_table_01.jpg`), and add the item's box to `tests/fixtures/frames/boxes.json`.
 3. Run `scripts/bakeoff.py` (built in step 04) over them with each candidate:
    - **YOLO-World**, zero-shot: `POST https://serverless.roboflow.com/yolo_world/infer` with `text` set to the class names and `yolo_world_version_id` such as `v2-l`. Start at confidence 0.05. Verify: https://docs.roboflow.com/models/supported-models/yolo-world.md
    - **SAM 3**, text prompts: `POST https://serverless.roboflow.com/sam3/concept_segment`, up to 16 prompts per request, about 250 ms. Verify: https://docs.roboflow.com/models/supported-models/sam3.md
