@@ -205,9 +205,13 @@ export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'Jun
 /** Every mention of a known name or alias in the words, as whole words, with where it sits. */
 function mentions(known, text) {
   const words = ` ${String(text ?? '').toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim()} `;
+  // A kind word shared by several items ("cup" for a big and a small cup) fits all of them, even without aliases.
+  const kinds = new Map();
+  for (const k of known ?? []) if (k.kind) kinds.set(String(k.kind).toLowerCase(), (kinds.get(String(k.kind).toLowerCase()) ?? 0) + 1);
   const found = [];
   for (const k of known ?? []) {
-    for (const name of [k.item, ...(k.aliases ?? [])].map(n => String(n).toLowerCase()).filter(Boolean)) {
+    const kind = k.kind && kinds.get(String(k.kind).toLowerCase()) > 1 ? [k.kind] : [];
+    for (const name of [k.item, ...(k.aliases ?? []), ...kind].map(n => String(n).toLowerCase()).filter(Boolean)) {
       for (let at = words.indexOf(` ${name} `); at !== -1; at = words.indexOf(` ${name} `, at + 1)) {
         found.push({ item: k.item, start: at + 1, end: at + 1 + name.length });
       }
@@ -218,7 +222,8 @@ function mentions(known, text) {
 
 /**
  * The one known item the words name, or null. A mention inside a longer one is part of it ("bag" in "brown bag"),
- * so "brown bag" is the brown bag. Null when nothing matches, when a word fits two items ("bag" with two bags:
+ * so "brown bag" is the brown bag. A bare kind word with several items of that kind ("cup") fits all of them.
+ * Null when nothing matches, when a word fits two items ("bag" with two bags:
  * the model asks which one), or when the words name two items apart ("the green bag or the brown handbag?":
  * the card must not jump while the question is being asked).
  */

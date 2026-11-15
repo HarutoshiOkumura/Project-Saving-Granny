@@ -8,45 +8,56 @@ export const NAME = 'Find It';
 export const GREETING = `Greet them warmly as ${NAME} in one short, natural sentence, and ask what they would like help finding.`;
 
 /**
- * Spoken words that fit more than one item, grouped: "bag" fits `bag` (green) and `brown bag`. Built from names and
- * aliases, so the model is told outright to ask "which one?". On the 14 Nov test call it asked for the water bottle
- * but not the bag, whose item is named plain "bag".
+ * Look-alikes, worked out fresh from what is enrolled at the start of every call: items of the same kind (the
+ * detector's category, e.g. two bags or two cups), or items one spoken word fits (a shared name or alias).
+ * Nothing is renamed: a second bag enrolled later simply joins the first bag's group on the next call. Each
+ * group lists the words that fit all of it ("bag"); telling them apart is left to the descriptions, so a big
+ * and a small white cup work as well as a green and a brown bag.
  */
-export function sharedWords(known) {
-  const byWord = new Map();
+export function lookalikeGroups(known) {
+  const parent = new Map(known.map(k => [k.item, k.item]));
+  const root = x => (parent.get(x) === x ? x : root(parent.get(x)));
+  const shared = new Map(); // a kind or a spoken word -> the items it fits
   for (const k of known) {
-    for (const word of [k.item, ...(k.aliases ?? [])].map(w => String(w).toLowerCase())) {
-      if (!byWord.has(word)) byWord.set(word, new Set());
-      byWord.get(word).add(k.item);
+    for (const word of [k.kind, k.item, ...(k.aliases ?? [])].filter(Boolean).map(w => String(w).toLowerCase())) {
+      if (!shared.has(word)) shared.set(word, new Set());
+      shared.get(word).add(k.item);
     }
   }
-  const groups = new Map(); // one line per set of items: "water bottle", "bottle" -> both bottles
-  for (const [word, items] of byWord) {
-    if (items.size < 2) continue;
-    const key = [...items].sort().join('|');
-    if (!groups.has(key)) groups.set(key, { words: [], items: [...items].sort() });
-    groups.get(key).words.push(word);
+  for (const items of shared.values()) {
+    const [first, ...rest] = items;
+    for (const other of rest) parent.set(root(other), root(first));
   }
-  return [...groups.values()];
+  const groups = new Map();
+  for (const k of known) {
+    const r = root(k.item);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(k);
+  }
+  return [...groups.values()]
+    .filter(members => members.length > 1)
+    .map(members => {
+      const names = new Set(members.map(m => m.item));
+      const words = [...shared].filter(([, items]) => items.size > 1 && [...items].every(i => names.has(i))).map(([word]) => word);
+      return { items: members.map(m => m.item).sort(), words, members };
+    });
 }
 
-/** How to name an item so it stands apart: an item called plain "bag", sharing that word, is "the green bag". */
-export function label(k, shared) {
-  const plain = shared.some(g => g.items.includes(k.item) && g.words.includes(String(k.item).toLowerCase()));
-  if (!plain || !k.color || String(k.item).toLowerCase().includes(String(k.color).toLowerCase())) return k.item;
-  return `${k.color} ${k.item}`;
-}
+/** Where it was before, or usually lives, when known. */
+const earlier = k =>
+  (k.result?.previous?.landmark ? `; before that: ${k.result.previous.landmark}${k.result.previous.minutes_ago != null ? `, ${ago(k.result.previous.minutes_ago)}` : ''}` : '') +
+  (k.result?.usual?.landmark ? `; usually lives: ${k.result.usual.landmark}` : '');
 
-/** One fact line per item: names, looks, the current answer, and where it was before or usually lives. */
-function factLine(k, shared) {
-  const name = label(k, shared);
-  const called = name !== k.item ? `; its name is "${k.item}"` : '';
+/** One fact line per item: its name and kind, other words for it, looks, the answer, and earlier or usual places. */
+function factLine(k) {
+  const kind = k.kind && k.kind.toLowerCase() !== String(k.item).toLowerCase() ? ` (a ${k.kind})` : '';
   const also = k.aliases?.length ? `; also called ${k.aliases.slice(0, 4).join(', ')}` : '';
   const looks = k.looks_like ? `; looks like: ${k.looks_like}` : '';
-  const prev = k.result?.previous?.landmark ? `; before that: ${k.result.previous.landmark}${k.result.previous.minutes_ago != null ? `, ${ago(k.result.previous.minutes_ago)}` : ''}` : '';
-  const usual = k.result?.usual?.landmark ? `; usually lives: ${k.result.usual.landmark}` : '';
-  return `- ${name}${called}${also}${looks}: ${k.sentence}${prev}${usual}`;
+  return `- ${k.item}${kind}${also}${looks}: ${k.sentence}${earlier(k)}`;
 }
+
+/** A look-alike's line: what tells it apart and its own answer side by side, so they are never mixed up. */
+const lookalikeLine = k => `  - ${k.item}, which looks like ${k.looks_like ?? 'no description'}: ${k.sentence}${earlier(k)}`;
 
 /**
  * The model's instructions for one call. `known` is what the assistant knows about every item when the call
@@ -55,13 +66,16 @@ function factLine(k, shared) {
  * Nothing can contact family yet (paused, Tom 14 Nov), so the instructions forbid promising it.
  */
 export function buildInstructions(known) {
-  const shared = sharedWords(known);
-  const facts = known.length ? known.map(k => factLine(k, shared)).join('\n') : '- (nothing loaded)';
-  const byItem = new Map(known.map(k => [k.item, label(k, shared)]));
-  const ask = shared.length
-    ? `\nSome words fit more than one of their things. When they use one of these, ask which one by how it looks before you answer, then use that one's facts:\n${shared
-        .map(g => `- ${g.words.map(w => `"${w}"`).join(', ')}: ${g.items.map(i => `the ${byItem.get(i) ?? i}`).join(' or ')}`)
-        .join('\n')}\nIf they say a word that fits only one thing (like "brown bag"), just answer.`
+  // Look-alikes are listed only in their group, each with its own answer beside what tells it apart: on the
+  // 14 Nov test, listed apart, the model gave the green bag the brown bag's place.
+  const groups = lookalikeGroups(known);
+  const grouped = new Set(groups.flatMap(g => g.items));
+  const single = known.filter(k => !grouped.has(k.item));
+  const facts = known.length ? (single.length ? single.map(factLine).join('\n') : '- (only the look-alikes below)') : '- (nothing loaded)';
+  const ask = groups.length
+    ? `\n\nSome of their things look alike. When they ask with a word that fits more than one of them, ask which one before you answer, using whatever tells them apart (colour, size, shape, brand). When they choose, answer only from that one's own line, and say which one you mean. If what they say fits only one, just answer from its line.\n${groups
+        .map(g => `- ${g.words.map(w => `"${w}"`).join(', ')} could be:\n${g.members.map(lookalikeLine).join('\n')}`)
+        .join('\n')}`
     : '';
   const lookup = known.length
     ? 'If they ask about something that is not on this list, tell them kindly that you do not know it yet and that their family can teach you. Never guess where anything is.'

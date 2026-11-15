@@ -18,6 +18,7 @@ class Item(BaseModel):
     id: UUID
     name: str
     aliases: list[str] = []
+    category: str | None = None  # the detector's class: items of one category are look-alikes
     color: str | None = None
     description: str | None = None
 

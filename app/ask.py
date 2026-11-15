@@ -60,6 +60,7 @@ class Known(BaseModel):
 
     item: str
     aliases: list[str]
+    kind: str | None = None  # items of one kind are look-alikes: the agent asks which one
     color: str | None = None
     looks_like: str | None = None  # colour and description, so the agent can tell look-alikes apart
     sentence: str
@@ -87,6 +88,7 @@ async def snapshot() -> list[Known]:
                 Known(
                     item=name.name,
                     aliases=name.aliases,
+                    kind=name.category,
                     color=name.color,
                     looks_like=_looks(name),
                     sentence=FALLBACK,
@@ -97,6 +99,7 @@ async def snapshot() -> list[Known]:
                 Known(
                     item=name.name,
                     aliases=name.aliases,
+                    kind=name.category,
                     color=name.color,
                     looks_like=_looks(name),
                     sentence=speak(result, now),

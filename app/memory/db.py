@@ -64,7 +64,7 @@ async def list_items() -> list[Item]:
         client = await _get_client()
         response = await (
             client.table("items")
-            .select("id,name,aliases,color,description")
+            .select("id,name,aliases,category,color,description")
             .eq("home_id", str(get_settings().home_id))
             .order("name")
             .execute()

@@ -42,6 +42,7 @@ def looked_up(monkeypatch: pytest.MonkeyPatch) -> list[str]:
                 id=uuid4(),
                 name="glasses",
                 aliases=["specs"],
+                category="glasses",
                 color="black",
                 description="reading glasses",
             ),
@@ -71,6 +72,7 @@ def test_snapshot_gives_every_items_sentence_without_logging_questions(
     assert body[0]["aliases"] == ["specs"]
     assert body[0]["looks_like"] == "black, reading glasses"
     assert body[0]["color"] == "black"
+    assert body[0]["kind"] == "glasses"
     assert body[1]["looks_like"] is None
     assert body[0]["sentence"] == "I last saw your glasses on the table about forty minutes ago."
     assert body[0]["result"]["landmark"] == "the table"
@@ -102,6 +104,7 @@ def test_one_failing_item_falls_back_on_its_own(monkeypatch: pytest.MonkeyPatch)
     assert body[1] == {
         "item": "keys",
         "aliases": [],
+        "kind": None,
         "color": None,
         "looks_like": None,
         "sentence": FALLBACK,

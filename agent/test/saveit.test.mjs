@@ -10,7 +10,7 @@ import { createVoiceMeter } from '../voice-meter.mjs';
 import { fakeRankItem, resetFakeHome, resolveItem } from '../fake-home.mjs';
 import { ago, cleanPhrase, createSaveIt, matchKnown, placeOf, speakStub } from '../saveit.mjs';
 import { createTestCall, localHost } from '../web-call.mjs';
-import { GREETING, NAME, buildInstructions, label, sharedWords } from '../prompt.mjs';
+import { GREETING, NAME, buildInstructions, lookalikeGroups } from '../prompt.mjs';
 
 const quiet = () => {};
 beforeEach(() => resetFakeHome());
@@ -327,9 +327,9 @@ test('prompt: Find It, looks for telling look-alikes apart, where it was before,
   assert.equal(NAME, 'Find It');
   assert.match(p, /^You are Find It,/);
   assert.match(GREETING, /Find It/);
-  assert.match(p, /- blue water bottle; also called water bottle, bottle; looks like: blue, steel: I last saw your blue water bottle/);
+  assert.match(p, /  - blue water bottle, which looks like blue, steel: I last saw your blue water bottle[^\n]*before that: the table, about 3 hours ago; usually lives: the chair/);
   assert.match(p, /before that: the table, about 3 hours ago; usually lives: the chair/);
-  assert.match(p, /- "water bottle", "bottle": the blue water bottle or the green water bottle/);
+  assert.match(p, /- "water bottle", "bottle" could be:\n  - blue water bottle, which looks like blue, steel: I last saw your blue water bottle/);
   assert.match(p, /not on this list, tell them kindly that you do not know it yet/);
   assert.doesNotMatch(p, /find_object/, 'no lookup tool when the list is loaded');
   assert.match(buildInstructions([], 'June'), /call find_object/, 'without a list it looks things up');
@@ -337,32 +337,52 @@ test('prompt: Find It, looks for telling look-alikes apart, where it was before,
 });
 
 const CLASSROOM = [
-  { item: 'bag', color: 'green', aliases: ['green bag', 'handbag', 'purse'], looks_like: 'green, green handbag with gold lettering', sentence: "I haven't seen your bag yet." },
-  { item: 'brown bag', color: 'brown', aliases: ['bag', 'brown handbag'], looks_like: 'brown, brown bag', sentence: 'I last saw your brown bag on the floor about twenty minutes ago.' },
-  { item: 'water bottle', color: 'dark blue', aliases: ['bottle', 'blue bottle', 'drink bottle', 'flask'], looks_like: 'dark blue, dark blue water bottle', sentence: 'I last saw your water bottle next to the chair about four hours ago.' },
-  { item: 'orange water bottle', color: 'orange', aliases: ['water bottle', 'bottle', 'drink bottle'], looks_like: 'orange, orange water bottle', sentence: 'I last saw your orange water bottle on the table about fifteen minutes ago.' },
-  { item: 'glasses', color: 'black', aliases: ['specs'], sentence: 'I last saw your glasses on the table about two hours ago.' },
+  { item: 'bag', kind: 'bag', color: 'green', aliases: ['green bag', 'handbag', 'purse'], looks_like: 'green, green handbag with gold lettering', sentence: "I haven't seen your bag yet." },
+  { item: 'brown bag', kind: 'bag', color: 'brown', aliases: ['bag', 'brown handbag'], looks_like: 'brown, brown bag', sentence: 'I last saw your brown bag on the floor about twenty minutes ago.' },
+  { item: 'water bottle', kind: 'bottle', color: 'dark blue', aliases: ['bottle', 'blue bottle', 'drink bottle', 'flask'], looks_like: 'dark blue, dark blue water bottle', sentence: 'I last saw your water bottle next to the chair about four hours ago.' },
+  { item: 'orange water bottle', kind: 'bottle', color: 'orange', aliases: ['water bottle', 'bottle', 'drink bottle'], looks_like: 'orange, orange water bottle', sentence: 'I last saw your orange water bottle on the table about fifteen minutes ago.' },
+  { item: 'glasses', kind: 'glasses', color: 'black', aliases: ['specs'], sentence: 'I last saw your glasses on the table about two hours ago.' },
 ];
 
-test('prompt: an item named plain "bag" next to a brown bag is "the green bag", and "bag" means ask which one', () => {
-  const shared = sharedWords(CLASSROOM);
-  assert.deepEqual(shared.find(g => g.words.includes('bag')), { words: ['bag'], items: ['bag', 'brown bag'] });
-  assert.deepEqual(shared.find(g => g.words.includes('water bottle')).items, ['orange water bottle', 'water bottle']);
-  assert.equal(label(CLASSROOM[0], shared), 'green bag');
-  assert.equal(label(CLASSROOM[1], shared), 'brown bag');
-  assert.equal(label(CLASSROOM[2], shared), 'dark blue water bottle');
-  assert.equal(label(CLASSROOM[4], shared), 'glasses', 'nothing to tell apart: plain name');
-  assert.equal(matchKnown(CLASSROOM, 'Where is my bag?'), null, 'two bags: ask');
-  assert.equal(matchKnown(CLASSROOM, 'Where is my brown bag?'), 'brown bag', 'the "bag" inside "brown bag" is part of it');
-  assert.equal(matchKnown(CLASSROOM, 'Which one? The green bag or the brown handbag?'), null, 'a "which one?" question names two items: the card stays');
-  assert.equal(matchKnown(CLASSROOM, "I haven't seen your green bag yet."), 'bag');
+// Same colour, no shared aliases: only the kind and the descriptions tell them apart.
+const CUPS = [
+  { item: 'cup', kind: 'cup', aliases: [], looks_like: 'white, big white mug', sentence: 'I last saw your cup on the table about ten minutes ago.' },
+  { item: 'small cup', kind: 'cup', aliases: [], looks_like: 'white, small white espresso cup', sentence: 'I last saw your small cup next to the chair about an hour ago.' },
+  { item: 'glasses', kind: 'glasses', aliases: ['specs'], sentence: 'I last saw your glasses on the table about two hours ago.' },
+];
+
+test('look-alikes come from the kind (and shared words), worked out each call; nothing is renamed', () => {
+  const groups = lookalikeGroups(CLASSROOM).map(g => ({ items: g.items, words: g.words.sort() }));
+  assert.deepEqual(groups, [
+    { items: ['bag', 'brown bag'], words: ['bag'] },
+    { items: ['orange water bottle', 'water bottle'], words: ['bottle', 'drink bottle', 'water bottle'] },
+  ]);
+  assert.deepEqual(lookalikeGroups([CLASSROOM[0], CLASSROOM[4]]), [], 'one bag on its own is just "bag"');
   const p = buildInstructions(CLASSROOM);
-  assert.match(p, /- "bag": the green bag or the brown bag/);
-  assert.match(p, /- "water bottle", "bottle", "drink bottle": the orange water bottle or the dark blue water bottle/);
-  assert.match(p, /- green bag; its name is "bag"; also called/);
+  assert.match(p, /- "bag" could be:\n  - bag, which looks like green, green handbag with gold lettering: I haven't seen your bag yet\.\n  - brown bag, which looks like brown, brown bag: I last saw your brown bag on the floor/);
+  assert.doesNotMatch(p, /^- bag[;:(]/m, 'look-alikes only in their group, under their own name ("bag")');
+  assert.match(p, /^- glasses \(a glasses\)|^- glasses; also called specs/m, 'others stay in the main list');
   assert.doesNotMatch(p, /June|check with your family|alert_caregiver|recall_life_fact/);
   assert.match(p, /You cannot call, text or message anyone/);
-  assert.match(p, /Say each answer once/);
+});
+
+test('a big and a small white cup with no aliases: grouped by kind, told apart by their descriptions', () => {
+  assert.deepEqual(lookalikeGroups(CUPS).map(g => g.items), [['cup', 'small cup']]);
+  const p = buildInstructions(CUPS);
+  assert.match(p, /- "cup" could be:\n  - cup, which looks like white, big white mug: I last saw your cup on the table\.*[^\n]*\n  - small cup, which looks like white, small white espresso cup: I last saw your small cup next to the chair/);
+  assert.match(p, /colour, size, shape, brand/);
+  assert.equal(matchKnown(CUPS, 'Where is my cup?'), null, 'a bare kind word with two cups: ask');
+  assert.equal(matchKnown(CUPS, 'Where is my small cup?'), 'small cup');
+  assert.equal(matchKnown(CUPS, 'Your small cup is next to the chair.'), 'small cup');
+});
+
+test('matching: two items named apart are ambiguous; a word inside a longer name is part of it', () => {
+  assert.equal(matchKnown(CLASSROOM, 'Where is my bag?'), null, 'two bags: ask');
+  assert.equal(matchKnown(CLASSROOM, 'Where is my brown bag?'), 'brown bag', 'the "bag" inside "brown bag" is part of it');
+  assert.equal(matchKnown(CLASSROOM, 'Which one? The green bag or the brown handbag?'), null, 'names two items: the card stays');
+  assert.equal(matchKnown(CLASSROOM, "I haven't seen your green bag yet."), 'bag');
+  const noAlias = [{ ...CLASSROOM[0] }, { ...CLASSROOM[1], aliases: ['brown handbag'] }];
+  assert.equal(matchKnown(noAlias, 'Where is my bag?'), null, 'still ambiguous without the shared alias: same kind');
 });
 
 test('two water bottles: "water bottle" is ambiguous (the model asks), "blue water bottle" is not', () => {
