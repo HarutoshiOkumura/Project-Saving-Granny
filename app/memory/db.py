@@ -1,11 +1,12 @@
 """The only module that talks to Supabase. Every call goes through `rpc(name, params)`."""
 
 import asyncio
+from uuid import UUID
 
 from supabase import AsyncClient, AsyncClientOptions, acreate_client
 
 from app.config import get_settings
-from app.memory.schema import Channel, FindResult
+from app.memory.schema import Channel, FindResult, PerceptionContext
 
 READ_TIMEOUT_S = 2.0
 
@@ -42,3 +43,16 @@ async def ask_item(query: str, channel: Channel) -> FindResult:
         client = await _get_client()
         response = await client.rpc("ask_item", params).execute()
     return FindResult.model_validate(response.data)
+
+
+async def perception_context(room_id: UUID | None = None) -> PerceptionContext:
+    """What the vision model may answer with (rooms, landmarks, items) and the current beliefs.
+
+    With `room_id`, landmarks are limited to that room and the rooms linked to it. No-capture
+    rooms are listed in `rooms` but have no landmarks. Raises like `ask_item`.
+    """
+    params = {"p_home": str(get_settings().home_id), "p_room": str(room_id) if room_id else None}
+    async with asyncio.timeout(READ_TIMEOUT_S):
+        client = await _get_client()
+        response = await client.rpc("perception_context", params).execute()
+    return PerceptionContext.model_validate(response.data)

@@ -24,18 +24,19 @@ These load when you work on perception, the ingest worker, the bake-off or the r
 
 ## Gemini call
 
-- Model from settings (`PERCEPTION_MODEL`), default `gemini-3.6-flash` (D24). The step 04 bake-off also tries `gemini-3.5-flash-lite` (faster, weaker) and `gemini-4-hydrogen` (the step-up: best boxes in Roboflow's evals); keep whichever it says. `gemini-3.8-flash` did not answer on our key on 14 Nov; retry it once in step 04 and use it only if it answers.
+- Model from settings (`PERCEPTION_MODEL`), default `gemini-3.6-flash` (D24). The step 04 bake-off kept it (D3): `gemini-3.5-flash-lite` is the fallback if latency or rate limits bite; `gemini-4-hydrogen` and `gemini-3.8-flash` (no answer on our key) are not used.
 - Use the Interactions API from `google-genai`: `client.aio.interactions.create(model=..., input=[...], response_format=..., generation_config=..., store=False, timeout=...)`, and read `output_text`. `generateContent` is legacy; do not use it. Verify the request shape against the docs linked in `CLAUDE.md` before coding.
-- Checked with a live text-only call on 14 Nov: `response_format={"type": "text", "mime_type": "application/json", "schema": ...}` returned `status` `completed` and JSON inside the enum. Confirm the image part with one live call in step 04.
+- Checked with a live text-only call on 14 Nov: `response_format={"type": "text", "mime_type": "application/json", "schema": ...}` returned `status` `completed` and JSON inside the enum. Step 04 confirmed it with images: text first, then `{"type": "image", "data": <base64>, "mime_type": "image/jpeg", "resolution": "high"}`.
 - Always pass `store=False`. By default the API stores every interaction (1 day on the free tier, 55 days on paid). Real frames only from a billing-enabled project with AI Studio logging off (hard rule in `CLAUDE.md`).
 - Input: the text prompt first, then the image (the image doc's order for a single image), as inline base64 JPEG with `mime_type` `image/jpeg`. Apply the photo's EXIF rotation first; phone-camera fixture photos carry it.
-- Set `generation_config.thinking_level` explicitly. Start at `low`: on/in/under judgments need some reasoning. The bake-off compares `minimal` (faster) against `low`; drop to `minimal` only if relations hold. Thinking tokens are billed and count against the output limit.
-- Image resolution: Gemini 3 spends 1,120 tokens per image by default (`high`). Keep that for small items like keys and glasses; try `medium` (560) in the bake-off for latency.
+- Set `generation_config.thinking_level` explicitly. Use `low`: in step 04 `minimal` missed a keys close-up that `low` found. Thinking tokens are billed and count against the output limit.
+- Image resolution: Gemini 3 spends 1,120 tokens per image by default (`high`). Keep it: `medium` (560) held the close-ups in step 04 but was not tried at a distance, where keys and glasses need the pixels.
 - Leave sampling settings (temperature and the like) at their defaults.
-- Timeout 15 s (a numeric `timeout` bounds the whole call), at most 3 retries with backoff, then skip the frame. Roboflow's evals timed Flash at about 7 s per image at low effort, so the worker must process frames concurrently, never one after another. Tighten the timeout to what step 04 measures. Treat any `status` other than `completed` (for example `incomplete` or `failed`) as a skipped frame.
-- Known weakness: vision language models tend to report an object that is not there when the prompt names it. The bake-off's empty frames measure this; the item cut and the drop rules contain it; beliefs stay out of the prompt until the bake-off shows they are safe.
+- Timeout 10 s, enforced with `asyncio.timeout` around the call (step 04: median about 3 s, worst 7.2 s over 51 calls). At most 3 retries with backoff, then skip the frame. Process frames concurrently, never one after another.
+- Turn the SDK's own retries off: `genai.Client(api_key=..., http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1)))`. By default it retries 408, 409, 429 and 5xx up to 4 times inside one call; in step 04 that stacked with our retries into a 429 storm, and its `timeout` let one call run 94 s. Treat any `status` other than `completed` (for example `incomplete` or `failed`) as a skipped frame.
+- Known weakness: vision language models tend to report an object that is not there when the prompt names it. The bake-off's empty frames measure this; the item cut and the drop rules contain it; beliefs stay out of the prompt (next bullet).
 - Prompt: report only listed items that are clearly visible; `in_hand` means in the wearer's own hand; never describe people; when unsure, lower the confidence rather than guess.
-- Whether the context's `beliefs` go into the prompt is decided by the step 04 bake-off, because showing them can make the model "confirm" them. Until then, leave them out.
+- Leave the context's `beliefs` out of the prompt (D3). Step 04 found no harm on 5 empty frames, but its one gain could not be told apart from suggestion, and a false confirmation would block "not there anymore".
 
 ## Drop rules (worker, in this order)
 
@@ -62,6 +63,10 @@ These load when you work on perception, the ingest worker, the bake-off or the r
 
 ## Detectors and Roboflow
 
+- D3: SAM 3 gates Gemini. Every filtered frame goes to `POST /sam3/concept_segment` with the prompts "green handbag", "eyeglasses", "bunch of keys", "wristwatch", "dark blue bottle" (plain names box single keys; "reading glasses" misses). Any demo item at 0.5 or more opens the gate; otherwise no Gemini call, except one empty look at most every 30 s for `mark_absent`.
+- Ignore SAM 3's label (it called a distant watch "bunch of keys"). Crop with the SAM 3 box that overlaps Gemini's `box_2d` most (IoU at least 0.5), else Gemini's box.
+- Send `disable_model_monitoring: true` on every Roboflow call (D20).
+
 - Gemini can also return boxes: `box_2d` as `[ymin, xmin, ymax, xmax]` normalized to 0..1000. The bake-off scores them as a detector candidate; scale them back to pixels before cropping.
 - `detect(image) -> list[Detection]` in `app/perception/detector.py` is the only place that calls Roboflow.
 - Inference only, on staged frames of our own objects. Never upload a frame from a real home or of a real person to a Roboflow project: the workspace is on the Research plan, so it is public.
@@ -76,9 +81,9 @@ Defaults are guesses (D11). Tune them on the fixture frames and record the tuned
 | Duplicate cut (SSIM) | 0.95 |
 | Room cut (`room_confidence`) | 0.6 |
 | Item cut (item `confidence`) | 0.5 |
-| YOLO-World confidence | start at 0.05 |
 | Roboflow Instant confidence | 0.85 to 0.99 |
-| RF-DETR, SAM 3 confidence | tune on fixtures |
+| SAM 3 gate confidence | 0.5 (step 04: opened 12/12 item frames, 1/5 empty) |
+| RF-DETR confidence | tune on fixtures, if one is trained |
 | Frame interval | 2 s (D10) |
 
 ## Disclosure

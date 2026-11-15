@@ -56,7 +56,7 @@ select '11111111-1111-1111-1111-111111111111', v.name, v.aliases::text[], v.cate
          where home_id = '11111111-1111-1111-1111-111111111111' and landmark = v.usual_landmark)
   from (values
     ('glasses',      '{specs,spectacles,readers,"reading glasses",eyeglasses}',                                    'glasses', 'black',     'black reading glasses',                          true,  'table'),
-    ('keys',         '{key,"house keys","door keys"}',                                                              'keys',    'orange',    'keys on an orange lanyard',                      true,  'table'),
+    ('keys',         '{key,"house keys","door keys"}',                                                              'keys',    'black',     'car key fob with a few keys on a ring',          true,  'table'),
     ('bag',          '{"green bag",handbag,"hand bag",purse,"franzi bag","milano bag","franzi milano bag"}',        'bag',     'green',     'green handbag with gold lettering (FRANZI Milano)', false, null),
     ('watch',        '{wristwatch,"wrist watch","silver watch"}',                                                   'watch',   'silver',    'silver wristwatch',                              false, null),
     ('water bottle', '{bottle,"blue bottle","blue water bottle","drink bottle",flask,water}',                       'bottle',  'dark blue', 'dark blue water bottle',                         false, null)
