@@ -8,6 +8,7 @@ from pydantic import AwareDatetime, BaseModel
 
 from app.ask import Answer, Known, ask, snapshot
 from app.auth import require_app_token
+from app.guide import Guidance, guide_to
 from app.memory.schema import Channel
 from app.worker.ingest import ingest
 
@@ -39,6 +40,13 @@ async def find(
 async def snapshot_route() -> list[Known]:
     """Every item's current answer, for the FaceTime agent at call start. Logs no questions."""
     return await snapshot()
+
+
+@app.get("/guide")
+async def guide_route(item: Annotated[str, Query(min_length=1, max_length=200)]) -> Guidance:
+    """One step toward an item, from where the camera last saw the wearer. The FaceTime agent
+    polls this while the caller walks. Logs no question."""
+    return await guide_to(item)
 
 
 @app.post("/frames", status_code=202, dependencies=[Depends(require_app_token)])

@@ -112,6 +112,43 @@ class Belief(BaseModel):
     minutes_ago: int | None = None
 
 
+class Observation(BaseModel):
+    """The newest frame the worn camera had processed (`db.latest_view`): where the wearer was
+    and which landmarks were in view. Text only."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    captured_at: AwareDatetime
+    room_id: UUID | None = None
+    landmarks_seen: list[UUID] = []
+
+
+class LayoutRoom(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    spoken: str  # the words the voice says, as `find_item` returns `room`
+    floor: int | None = None
+
+
+class LayoutLandmark(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    room_id: UUID
+    address: str  # "room > landmark", as `find_item` returns `address`
+
+
+class HomeLayout(BaseModel):
+    """The home's rooms, landmarks and which rooms connect (`db.home_layout`), for guidance."""
+
+    model_config = ConfigDict(frozen=True)
+
+    rooms: list[LayoutRoom] = []
+    landmarks: list[LayoutLandmark] = []
+    links: list[tuple[UUID, UUID]] = []
+
+
 class HomeMap(BaseModel):
     """Names to ids for the write path, keyed by the names `perception_context` uses
     (landmarks by address, "room > landmark")."""
