@@ -13,6 +13,7 @@ The contract table is in `CLAUDE.md`.
 
 - On 14 Nov 2026 step 01 applied `0001_save_it_memory.sql` (migration `save_it_memory`) and `0002_lock_rls_auto_enable.sql` (migration `lock_rls_auto_enable`) to the Supabase project, and seeded it from `supabase/seed.sql`.
 - Both files are frozen. Changes go in the next numbered file (`0003_*.sql`), applied with the Supabase MCP `apply_migration` after the scratch tests pass.
+- On 15 Nov 2026 (02:38 EST) `0005_insights.sql` (migration `insights`) was applied: `wear_minutes`, `life_events`, `concerns`, the views `wear_daily` and `wear_hourly`, and `homes.share_summary_with_clinician` / `share_decided_at`. It is frozen too. It does not depend on `0003` (not applied) or `0004` (reserved for D26 C). Its checks are `supabase/tests/test_insights.sql` (21, run after 0001, 0002 and 0005). Rehearsal reset: also `delete from concerns; delete from life_events; delete from wear_minutes;`.
 - Supabase runs Postgres 17 with pgvector 0.8.2; the scratch container runs Postgres 16 with pgvector 0.8.7. Function, column, constraint, index and trigger definitions were compared after applying and are identical.
 - Every schema change gets a check in `supabase/tests/test_memory.sql`, written first and seen failing.
 - Run the tests on scratch Postgres only (command in `CLAUDE.md`), on a fresh database each time, loading every migration in order before the test file. 75 checks.

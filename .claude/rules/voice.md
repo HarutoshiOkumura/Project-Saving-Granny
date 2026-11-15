@@ -68,3 +68,18 @@ Never offer a `usual` place that is the same as the place just ruled out.
 - After answering (D15), offer to stay on the line while they look, but not after every answer (asking every time sounded robotic on the test call). If yes, wait, then ask whether they found it and report the answer with the outcome tool if it exists.
 - If the caller sounds distressed or asks for a person, be calm and reassuring. Do not promise to let anyone know until the family call exists.
 - Never say "HIPAA compliant".
+
+## Safety (report_concern, 15 Nov)
+
+The FaceTime agent asks once, reports, and the family decides (docs/INSIGHTS.md design 3).
+It never calls 911 and never says it told anyone: nothing can reach family yet.
+The code (`agent/concern.mjs`) must use these sentences exactly; a test checks they are here.
+
+- Fall, hurt, help or lost outside: ask "Are you hurt?" once, then report with their answer.
+  - Hurt, no answer, or not asked: "I'm here with you. If you're hurt, call 911 or ask someone nearby."
+  - Fine after a fall: "I'm glad you're okay. Take your time getting up."
+  - Fine otherwise: "I'm glad you're okay. I'm right here with you."
+- Smoke or something burning (report at once, no question): "Please move away from the smoke. Call 911 if you see fire."
+- Someone wants money (gift cards, a wire, bank details, a grandchild in jail, "don't tell anyone"), reported at once: "That sounds like a trick some people try. Please don't send any money, and it's fine to hang up."
+- Not safety, never reported: "my glasses fell", "the bag fell off the chair", "help me find my keys", "I lost my keys".
+- "I'm fine" is still reported (as `ok`): people with dementia sometimes deny a real fall.

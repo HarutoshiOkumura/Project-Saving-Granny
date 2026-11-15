@@ -90,6 +90,22 @@ Every older field is unchanged, so an agent that ignores them keeps working.
 Measured against Supabase on 15 Nov: `/snapshot` takes about 190 ms warm without the token and 270 to 340 ms with it (signing is one Storage request); the first call after a restart took 1.2 s.
 If the habit read or the signing fails, the sentences still come back and only these fields are `null`.
 
+### Safety: report_concern (15 Nov)
+
+The agent always offers a `report_concern` tool, with or without a snapshot (`agent/concern.mjs`, rules in `agent/prompt.mjs` `SAFETY_RULES`, wording in `.claude/rules/voice.md` "Safety").
+It is design 3 of `docs/INSIGHTS.md`: ask once, report, and let the family decide.
+It never calls 911 and never says it told anyone.
+
+- Triggers: a fall or "I can't get up", being hurt, help that is not about finding a thing, smoke or burning, being lost outside, and someone wanting money (gift cards, a wire, bank details, a grandchild in jail, "don't tell anyone").
+- Near misses that must not trigger: "my glasses fell", "the bag fell off the chair", "help me find my keys", "I lost my keys".
+- Flow: for a fall, hurt, help or lost, the model asks "Are you hurt?" once, then calls the tool with `answer` `hurt`, `ok` (even "I'm fine") or `no_answer`; for smoke or money it calls at once.
+- The tool returns the sentence to say, chosen by kind and answer; the backend reply never changes it.
+- Backend: `POST /concerns` with `Authorization: Bearer <APP_TOKEN>` and `{"kind", "answer", "channel": "facetime"}`; reply `201 {"id", "urgency", "room"}`.
+  Any failure (no backend, 401, 503, timeout after 3 s) is logged as `report_concern ok:false` and swallowed.
+  With `BACKEND_URL` empty nothing is sent.
+- Offline tests: `agent/test/concern.test.mjs` (request shape, failures swallowed, fake mode, wording in step with `voice.md`, triggers and near misses in the prompt).
+- **Untested by voice. Tom: run the near-miss phrases and one of each trigger on a test call** (`npm run web-call`), and check that the model asks "Are you hurt?" only once and does not call the tool for "my glasses fell".
+
 ### Test without FaceTime (uses no Chert minutes)
 Chert counts FaceTime minutes per call (trial: 50, at most 5 a call; `npx @trychert/facetime@0.1.0-beta.20 doctor` shows what is left). Holding the line costs nothing, and the agent opens no Gemini session until someone joins. For everyday testing, skip FaceTime:
 1. Backend (repo root): `uv run uvicorn app.main:app --port 8000`

@@ -43,6 +43,18 @@ export function lookalikeGroups(known) {
     });
 }
 
+/**
+ * Safety rules (docs/INSIGHTS.md design 3): ask once, report, and let the family decide. Always in the
+ * instructions, with or without a snapshot. Near misses are named because "fell" and "help" are everyday words
+ * in a call about lost things.
+ */
+export const SAFETY_RULES = `Safety comes before anything else:
+- Call report_concern when they say they fell or cannot get up, they are hurt, they need help that is not about finding a thing, they smell smoke or something burning, they are lost outside, or someone wants money from them (gift cards, a wire transfer, bank details, a grandchild in jail, "don't tell anyone").
+- These are about finding things, not safety, so never call report_concern for them: "my glasses fell", "the bag fell off the chair", "help me find my keys", "I lost my keys".
+- For a fall, being hurt, needing help or being lost: first ask once, calmly, "Are you hurt?" Then call report_concern with their answer: hurt; ok, even when they say they are fine; or no_answer when they do not answer.
+- For smoke or someone wanting money, call report_concern at once, without asking first.
+- Then say what report_concern returns, gently. Never say you have called or told anyone, and never call 911 yourself.`;
+
 /** Where it was before, or usually lives, when known. */
 const earlier = k =>
   (k.result?.previous?.landmark ? `; before that: ${k.result.previous.landmark}${k.result.previous.minutes_ago != null ? `, ${ago(k.result.previous.minutes_ago)}` : ''}` : '') +
@@ -90,6 +102,8 @@ How you talk:
 - Never suggest climbing, kneeling, reaching high, going outside or using stairs.
 - You cannot call, text or message anyone. Never offer or promise to contact their family or anyone else.
 - Say each answer once. Do not repeat yourself unless they ask you to.
+
+${SAFETY_RULES}
 
 What you know right now (from the camera, as of the start of this call):
 ${facts}

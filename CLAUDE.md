@@ -49,7 +49,11 @@ app/memory/db.py         the ONLY module that talks to Supabase
 app/memory/schema.py     Pydantic models for what the memory functions return (FindResult, Place)
 app/speak.py             find_item JSON -> one spoken sentence (pure, unit-tested)
 app/ask.py               one question: ask_item, speak(), 2 s timeout, fallback, log line (for /find and voice)
-app/auth.py              the APP_TOKEN check for /frames (and later the dashboard)
+app/auth.py              the APP_TOKEN check for /frames, /concerns, /api/* (and photo links in /snapshot)
+app/look.py              "where to look": places ranked with chances for /snapshot (pure, D33)
+app/concerns.py          safety-loop rules: urgency, quiet-day check-in (pure, docs/INSIGHTS.md)
+app/patterns.py          change from usual: daily facts, two-track detector, wording (pure)
+app/insights.py          the insights endpoints' work: concerns, family tags, patterns
 app/names.py             Typesense: spoken words -> item name before ask_item (optional, 300 ms, falls back)
 app/voice/vapi.py        Vapi tool webhook
 app/perception/schema.py Pydantic models for the perception result, boxes, the Gemini JSON schema
@@ -60,12 +64,13 @@ app/perception/frame.py  load_frame() (upright, no metadata) and crop()
 app/perception/retry.py  timeout and retries for every model call
 app/perception/filters.py   blur and duplicate checks
 app/worker/ingest.py     frame -> filters -> perception -> drop rules -> database (POST /frames)
+app/worker/wear.py       wear time: frames and moving frames per device-minute (counts only)
 app/web/                 capture.html, dashboard.html (static, no build step)
 agent/                   LiveKit agent for the Chert FaceTime line (separate process)
 scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py, coder_setup.sh
 tests/                   pytest; tests/fixtures/frames/ holds staged frames
-supabase/migrations/     0001_save_it_memory.sql, 0002_lock_rls_auto_enable.sql (applied; frozen)
-supabase/tests/          test_memory.sql (scratch database only)
+supabase/migrations/     0001, 0002 and 0005_insights.sql (applied; frozen); 0003 (not applied)
+supabase/tests/          test_memory.sql, test_ranking.sql (0003), test_insights.sql (0005); scratch only
 supabase/seed.sql        the demo home as seeded on Supabase (template: seed.example.sql)
 supabase/dummy_data.sql  sightings in each answer state, for building the read path before the camera works
 ```

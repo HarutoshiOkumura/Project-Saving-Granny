@@ -1,5 +1,6 @@
 """Pydantic models for what the memory functions return. Keys follow `find_item` in 0001."""
 
+from datetime import date
 from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -116,6 +117,130 @@ class LookEvidence(BaseModel):
     places: list[PlaceName] = []
     usual: list[UsualPlace] = []
     glimpses: list[Glimpse] = []
+
+
+# ---------------------------------------------------------------------------------------------
+# Insights (0005, docs/INSIGHTS.md): wear time, family tags, the safety loop, and the rows the
+# pattern summary reads.
+# ---------------------------------------------------------------------------------------------
+
+EventKind = Literal[
+    "visitor",
+    "unwell",
+    "hospital",
+    "new_medicine",
+    "new_item",
+    "away",
+    "camera_off",
+    "new_hearing_aid",
+    "other",
+]
+ConcernKind = Literal["fall", "hurt", "help", "smoke", "scam", "lost_outside", "quiet_day"]
+ConcernAnswer = Literal["hurt", "ok", "no_answer"]
+Urgency = Literal["urgent", "check_in", "note"]
+ConcernStatus = Literal["open", "on_my_way", "calling_911", "all_ok"]
+
+
+class HomeInfo(BaseModel):
+    """The `homes` row: whose home, its zone, and whether the wearer agreed to share a summary."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    person_name: str
+    timezone: str
+    share_summary_with_clinician: bool = False
+    share_decided_at: AwareDatetime | None = None
+
+
+class WearDay(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    day: date
+    worn_minutes: int
+
+
+class WearHour(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    day: date
+    hour: int
+    worn_minutes: int
+
+
+class LifeEvent(BaseModel):
+    """A family tag that explains a day ("new medicine", "visitor")."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    kind: EventKind
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime | None = None
+    note: str | None = None
+
+
+class Concern(BaseModel):
+    """One `concerns` row: the person said they fell, needed help, smelled smoke..."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    kind: ConcernKind
+    answer: ConcernAnswer | None = None
+    urgency: Urgency
+    channel: Channel
+    raised_at: AwareDatetime
+    room: str | None = None  # spoken name of the last room the camera saw
+    status: ConcernStatus
+    handled_at: AwareDatetime | None = None
+    handled_by: str | None = None
+
+
+class QuestionRow(BaseModel):
+    """One `queries` row, as the pattern summary reads it."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    asked_at: AwareDatetime
+    channel: Channel
+    item_id: UUID | None = None
+    state: str | None = None
+    outcome: Literal["found", "not_found"] | None = None
+    sighting_id: UUID | None = None
+
+
+class StayRow(BaseModel):
+    """A settled stay of an item on a landmark (a put-down), with what it took to believe it."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    item_id: UUID
+    landmark_id: UUID | None = None
+    first_seen_at: AwareDatetime
+    det_conf: float | None = None
+    room_conf: float | None = None
+    id_conf: float | None = None
+
+    @property
+    def confident(self) -> bool:
+        """As `find_item`: detector x room x identity confidence, cut at 0.5."""
+        return (self.det_conf or 1) * (self.room_conf or 1) * (self.id_conf or 1) >= 0.5
+
+
+class PatternRows(BaseModel):
+    """Everything the pattern summary reads, in one bundle (read by `db.pattern_rows`)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    home: HomeInfo
+    items: list[Item]
+    places: list["PlaceName"]
+    wear: list[WearDay]
+    events: list[LifeEvent]
+    questions: list[QuestionRow]
+    answered_by: list[StayRow]  # the stays the questions were answered from
+    put_downs: list[StayRow]
 
 
 def _none_to_list(value: object) -> object:

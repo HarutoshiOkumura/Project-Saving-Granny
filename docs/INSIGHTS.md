@@ -1,8 +1,20 @@
 # Insights: three designs on top of the memory database
 
-Status: DESIGN, not built (15 Nov 01:55 EST).
+Status: **MVP built and live on Supabase** (15 Nov 02:45 EST); the parts not built are listed under "MVP: what exists" below.
 Evidence: `docs/research/save-it-data-and-safety-ideas.md` (cited; read its "Ranked recommendations" first).
-Owner of each design: open (see "Decisions needed" at the end).
+
+## MVP: what exists (15 Nov 02:45)
+
+The team chose MVP versions of all three, with no sample data: every function exists and runs end to end; nothing is pre-filled.
+
+| Design | Built | Not built yet |
+|---|---|---|
+| 1 Wear time | `app/worker/wear.py` counts every frame and moving frame per device-minute before any filter; the worker stores them at most every 15 s (`wear_minutes`); views `wear_daily`, `wear_hourly`; family tags `POST/GET /api/events` (`life_events`); `confident` per question derived from the answering stay | Perception-quality view; the last 15 s of a session are stored only when the next frame arrives |
+| 2 Change from usual | `GET /api/patterns?days=56`: daily facts (worn hours, wearer questions, asked again after a sure answer, found/not found, put-downs, at its place, odd places with dated examples, tags), the sudden track (both directions, wear as a signal, tagged days muted) and a simple slow track (3 weeks against up to 8, robust z), "learning" for the first 28 days, sentences with no disease words (`app/patterns.py`, tested against `BANNED`) | The dashboard tab (step 08), the printable clinician page, CUSUM, `product_change` baselines, the sample home (dropped: no sample data) |
+| 3 Confirm, then family | Agent tool `report_concern` (`agent/concern.mjs`, prompt rules, voice.md "Safety"); `POST /concerns` stores kind, answer, urgency and the last room; `GET /api/concerns` (open first, plus the quiet-day check-in sentence); `POST /api/concerns/{id}/handle` ("on my way", "calling 911", "all OK") | A channel that reaches the family's phone (SMS or push), so the agent still promises nothing; the dashboard banner; a voice test of the near-miss phrases |
+
+All insights routes need `Authorization: Bearer <APP_TOKEN>`.
+Checked end to end on 15 Nov against Supabase: blank frames filled `wear_minutes`; the agent's `concern.mjs` raised a fall (urgent, "the classroom") and a scam (note); a wrong token got 401 and the agent still said its sentence; the family closed the fall with "all OK"; a tag showed in `/api/patterns`. All test rows were deleted afterwards.
 
 The research says one thing clearly.
 Save It is not an early-detection tool, but it is an unusually fine clock for **change**: it can tell a family and a clinician when something started and how fast it moved.
