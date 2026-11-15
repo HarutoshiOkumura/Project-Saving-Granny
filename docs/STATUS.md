@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov 18:54 ET (Tom's Claude Code: fixes after the first live FaceTime call)
+Last updated: Sat 14 Nov 19:48 ET (Tom's Claude Code: faster, natural FaceTime answers via /snapshot; step 09 Typesense came from a parallel session)
 
 ## Steps
 
@@ -18,8 +18,8 @@ Last updated: Sat 14 Nov 18:54 ET (Tom's Claude Code: fixes after the first live
 | 06 | Ingest worker | todo | Catch `22023` from `log_sighting` (room and landmark disagree) and skip the frame |
 | 07 | Capture page | todo | |
 | 08 | Dashboard | todo | |
-| 09 | Typesense | todo | optional |
-| 10 | FaceTime | doing | With `BACKEND_URL` set, `agent/` reads step 02's `GET /find?channel=facetime` (`{sentence, result}`, verbatim) and points the card from `result`; checked live through the local backend against Supabase. "Not there" and "I put it..." save nothing until `/miss` (0003) and `/told` exist. `chert doctor --agent save-it` all pass; 10/10 `npm test`. First live call (14 Nov) worked end to end but felt robotic and empty: no sightings in the log, wallet and phone not enrolled, card cut off by FaceTime. Fixes in (card inside the crop, filler words dropped before `/find`, unknown items named back, per-turn call log); retest pending. Browser test calls without Chert minutes: `npm run web-call` (checked end to end: agent joined in 0.9 s, card and voice at 1.3 s; Gemini's first words of the greeting after 1.2 s). Trial: 48 FaceTime minutes left at 19:05. Caller video still blocked on D4 |
+| 09 | Typesense | done | Keyword only (no embeddings, ~180 MB RAM). `app.ask.ask()` calls `names.resolve()` before `ask_item`, so /find and the FaceTime agent both get it; any failure, or 300 ms, falls back to the raw words. A hit counts only if every word of the name or of one alias matched ("house phone" stays unknown). Typo lengths count the word stem, tuned to 5 and 8 letters so "nurse" does not become "purse". Live: "spectecles", "my reading glases", "black reading glasses", "car keys", "bags", "water botle" resolve in ~2 ms; "dentures", "wallet", "nurse" stay unknown; /find answered with Typesense stopped (2 web rows left in `queries`). Known: "glasses case" resolves to glasses. Not built: synonym sets (aliases do that job), hybrid/NL/RAG, analytics. Run: `docker start saveit-typesense` (local 30.2, key in `.env`), then `uv run python -m scripts.sync_typesense` after items or aliases change |
+| 10 | FaceTime | doing | The agent loads `GET /snapshot` (every item's sentence, no question logged) when a call starts and answers known items in one model turn, in its own words, with places and times kept as given; transcripts drive the card and the question log through `/find`. Gemini thinking off by default. Spoken-question benchmark through LiveKit, first sound after the question: 1.8 to 3.8 s, median about 2.2 s (was 3.2 to 4.9 s); answers 3 to 4.4 s long (was 6.8 to 7.6 s). No `find_object` tool while a snapshot is loaded (Tom's test call: it answered the bag and looked it up, then repeated itself). Card marker: green about 0.3 s after the caller's voice starts (level meter on their audio, no word). No promises to contact family anywhere (tools without backends removed; `speak()` no longer says "let me check with your family"). "Bag" now asks which one, like the water bottle. Spoken name now Find It; asks "the blue one or the green one?" when two items fit (looks in the snapshot), tested by voice against Gemini at about 1.5 s a turn. Browser test calls: `npm run web-call`. "Not there" and "I put it..." still save nothing (no `/miss`, `/told`). Caller video still blocked on D4 |
 | 11 | Harden and record | todo | |
 
 State is one of: todo, doing, done, stubbed (works with fake data), blocked (say on what).
@@ -50,8 +50,8 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Open questions for the humans
 
-- **⚠ D5 and D6 are decided but UNVERIFIED** (MacBook Pro, Coder workspace, Cloudflare Quick Tunnel, iPhone 17). Run checks A1 to A6 in `docs/DECISIONS.md` D5 in the first end-to-end test (step 03 at the latest) and write the results here. Each check has a fallback.
-- Humans, before step 03: Coder server and a Docker workspace on the Mac (screenshot it), the tunnel address in `PUBLIC_BASE_URL` (empty now), a name for who owns the Mac during judging, and ask the Coder table whether a self-hosted server counts (D6).
+- **Coder (Tom, 14 Nov 20:50):** we use the event's hosted deployment, not a server on the Mac (D5, D6 changed). Tom's workspace `save-it` is set up by `scripts/coder_setup.sh` (96 Python and 14 agent tests pass on the pushed `df241d5`). No public ports there, so the public address is still a Quick Tunnel, now started in the workspace. No Docker in workspaces: the database tests and the local `saveit-typesense` container stay on a laptop, so in a workspace `names.resolve()` falls back until Typesense runs another way. All in `docs/CODER.md`.
+- **⚠ D5 checks UNVERIFIED:** run A1 to A6 in `docs/DECISIONS.md` D5 in the first end-to-end test and write the results here. Humans: screenshot the workspace for Devpost, name who owns it during judging, put the tunnel address in `PUBLIC_BASE_URL`, and ask the Coder table the three questions in `docs/CODER.md`.
 - After step 01: make the Supabase MCP read-only by adding `&read_only=true` to the URL in `.mcp.json`.
 - D1: where the demo home is staged. Names now live in `supabase/seed.sql`; change them there if the staging changes.
 - Where does the bag usually live? One SQL update sets `items.home_landmark_id`.
@@ -61,7 +61,10 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 - Photo idea (14 Nov): keep the item's last good view instead of its best-confidence one, and a wider "context" crop that shows the landmark. Decide in step 05/06 on real fixture crops. Full frames stay out (hard rule).
 - `package.json`, `package-lock.json` and `node_modules/` (`@supabase/server`) appeared in the repo root at 15:36. The app is Python; delete them unless someone needs them.
 - For Haru: Tom's work is on branch `tom/read-side` (FaceTime agent reading `/find`, read-side docs, env-file rule in `CLAUDE.md`, `0003` not yet ready to apply). It already contains your main up to step 02; review and merge it, or tell Tom to.
-- Load `supabase/dummy_data.sql` on Supabase (Haru with the MCP, or Tom in the SQL editor): the log is empty, so every call answers "I haven't seen it yet".
+- For Haru: Supabase now holds a classroom home (table, chair, floor; bathroom no-capture; plus watch and water bottle) that is not in `seed.sql`, so `dummy_data.sql` refuses to run. Please commit the classroom seed.
+- Dummy sightings for the classroom were loaded at 19:20 (Tom asked), only through `log_sighting` and `mark_absent`: glasses on the table (chair before), keys in hand, water bottle next to the chair, watch gone from the table, bag never seen. Clear them with the rehearsal reset before real camera data.
+- For Haru: Tom renamed the assistant to **Find It** (what callers hear and see on the card). Repo, docs and internal ids still say Save It. Rename the project and the Devpost entry too?
+- For Haru: Tom had two look-alikes enrolled in Supabase at 20:50 for testing "which one?": `brown bag` (alias `bag`; dummy stay on the floor) and `orange water bottle` (alias `water bottle`; dummy stays on the chair, then the table). They are not in `seed.sql` or the Typesense copy (re-run `scripts/sync_typesense.py`). Keep them for the demo, or delete them after the rehearsal reset?
 - Enroll a wallet and a phone in the demo home? On the first test call they were the first things asked for; D2 kept the demo to glasses, keys and the bag.
 - Confirm the read-side direction (D24, D25, D27 in docs/DECISIONS.md): voice uses `rank_item`, Typesense beyond name matching, Chert FaceTime as the main channel.
 - For Haru: Roboflow: applying for the academic/research plan makes all data in that workspace public on Roboflow Universe (Roboflow docs). That confirms the hard rule.

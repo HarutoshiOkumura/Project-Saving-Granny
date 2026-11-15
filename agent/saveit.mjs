@@ -16,7 +16,7 @@
 // `suggested` is { room, landmark, landmark_id? }: the place the card shows. The answer is read verbatim.
 // Requests send `Authorization: Bearer $APP_TOKEN` when APP_TOKEN is set.
 
-import { fakeFact, fakeRankItem, fakeRecordMiss, fakeTold } from './fake-home.mjs';
+import { fakeRankItem, fakeRecordMiss, fakeTold } from './fake-home.mjs';
 
 const TIMEOUT_MS = 3000;
 
@@ -36,9 +36,11 @@ export function cleanPhrase(phrase) {
 export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'June', fetchImpl = globalThis.fetch, log = defaultLog } = {}) {
   const base = backendUrl.replace(/\/+$/, '');
   const mode = base ? 'backend' : 'fake';
-  const fallback = `I'm not sure. Let me check with ${familyName}.`;
-  const state = { item: null, suggested: null, rank: null, result: null, queryId: null };
-  const offerFamily = () => ({ say: `I'm not sure where else to look. Shall I ask ${familyName} to help?`, suggested: null });
+  // Nothing can call or message family yet (paused, Tom 14 Nov), so no sentence may promise it.
+  const fallback = "I'm not sure right now.";
+  const state = { item: null, suggested: null, rank: null, result: null, queryId: null, known: [] };
+  let lastLookup = { item: null, at: 0 }; // one logged lookup per item per exchange, whoever names it first
+  const noMorePlaces = () => ({ say: "I'm not sure where else to look right now.", suggested: null });
 
   async function http(method, path, body) {
     const headers = { Accept: 'application/json' };
@@ -84,7 +86,7 @@ export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'Jun
     return { say, suggested: state.suggested };
   }
 
-  /** No /miss yet, so nothing is recorded: offer the usual place once, unless they just looked there; then family. */
+  /** No /miss yet, so nothing is recorded: offer the usual place once, unless they just looked there; then say so. */
   function nextAfterMiss() {
     const u = state.result?.usual;
     const usual = u?.landmark ? { room: u.room ?? null, landmark: u.landmark } : null;
@@ -94,12 +96,54 @@ export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'Jun
       return { say: `Okay. Let's look for your ${state.item} on ${usual.landmark}.`, suggested: usual };
     }
     state.suggested = null;
-    return offerFamily();
+    return noMorePlaces();
   }
 
-  return {
+  /** Look an item up (logs the question, sets the card) unless it was just looked up for this exchange. */
+  const lookupOnce = async item => {
+    if (lastLookup.item === item && Date.now() - lastLookup.at < 20000) return null;
+    lastLookup = { item, at: Date.now() };
+    return api.findObject(item);
+  };
+
+  const api = {
     mode,
     state,
+
+    /** Everything Save It knows right now (GET /snapshot), loaded when a call starts, so the model can
+     *  answer in one turn without a tool round trip. [] when there is no backend or it fails. */
+    loadSnapshot: async () => {
+      state.known = [];
+      if (mode !== 'backend') return state.known;
+      const t0 = Date.now();
+      try {
+        const known = await http('GET', '/snapshot');
+        state.known = Array.isArray(known) ? known.filter(k => k?.item && typeof k.sentence === 'string') : [];
+        log({ tool: 'snapshot', mode, ms: Date.now() - t0, ok: true, items: state.known.length });
+      } catch (err) {
+        log({ tool: 'snapshot', mode, ms: Date.now() - t0, ok: false, error: String(err?.message ?? err) });
+      }
+      return state.known;
+    },
+
+    /** After each thing the caller says: when it names a known item, look it up in the background. That logs
+     *  the question, points the card and sets the item for "not there"; the model answers from the snapshot. */
+    noteHeard: async text => {
+      const item = matchKnown(state.known, text);
+      // Only a word that names exactly one item. Follow-ups ("the blue one") and unknown things are not looked
+      // up here: on the test call they logged junk questions and blanked the card right after the answer.
+      return item ? lookupOnce(item) : null;
+    },
+
+    /** After each reply: when it names exactly one known item, follow it (card, log, "not there"). This is how
+     *  the card catches up after "The blue one or the green one?" "The blue one." */
+    noteSaid: async text => {
+      // Statements only: "Which one? Your green bag or the brown one?" is a question, not an answer, and the card
+      // must not follow it (on the test call it looked up the green bag while asking which bag).
+      const statements = String(text ?? '').split(/(?<=[.!?])\s+/).filter(s => !s.trim().endsWith('?')).join(' ');
+      const item = matchKnown(state.known, statements);
+      return item ? lookupOnce(item) : null;
+    },
 
     /** find_object: where is it? Returns { say, suggested }. */
     findObject: phrase => timed('find_object', async () => {
@@ -111,10 +155,13 @@ export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'Jun
       return out;
     }),
 
-    /** report_not_there: the suggested place was empty. Records the miss and gives the next place. */
-    reportNotThere: () => timed('report_not_there', async () => {
+    /** report_not_there: the suggested place was empty. Records the miss and gives the next place.
+     *  `thing` (optional) names the item, for when the model answered from the snapshot. */
+    reportNotThere: thing => timed('report_not_there', async () => {
+      const named = thing ? matchKnown(state.known, thing) ?? cleanPhrase(thing) : null;
+      if (named && named !== state.item) await api.findObject(named);
       if (!state.item) return { say: 'Which thing are you looking for?', suggested: null };
-      if (!state.suggested) return offerFamily();
+      if (!state.suggested) return noMorePlaces();
       if (mode === 'backend') {
         if (state.suggested.landmark_id) {
           try {
@@ -145,33 +192,43 @@ export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'Jun
         }
       }
       const t = fakeTold(objectPhrase, placePhrase);
-      if (!t.item) return { say: "Okay. I'll tell your family about that.", suggested: null };
+      if (!t.item) return { say: 'Okay, thank you for telling me.', suggested: null };
       const item = `your ${t.item}`;
       if (!t.landmark) return { say: `Okay. I'll remember ${item}.`, suggested: null };
       const verb = kind === 'found' ? "I'm glad you found" : 'Thank you. I will remember';
       return { say: `${verb} ${item}. ${cap(item)} ${t.plural ? 'are' : 'is'} on ${t.landmark.landmark}.`, suggested: t.landmark };
     }),
-
-    /** recall_life_fact: "Who is June?" */
-    recallLifeFact: question => timed('recall_life_fact', async () => {
-      if (mode === 'backend') {
-        const r = await http('GET', `/facts?q=${encodeURIComponent(question)}`);
-        return { say: r.say || fallback, suggested: null };
-      }
-      return { say: fakeFact(question) ?? `I'm not sure. Let's ask ${familyName}.`, suggested: null };
-    }),
-
-    /** alert_caregiver: the person is upset, hurt or asks for family. */
-    alertCaregiver: reason => timed('alert_caregiver', async () => {
-      if (mode === 'backend') {
-        const r = await http('POST', '/alert', { reason });
-        return { say: r.say || `I've let ${familyName} know.`, suggested: null };
-      }
-      log({ tool: 'alert_caregiver', mode, alert: String(reason).slice(0, 120) });
-      return { say: `I've sent ${familyName} a message. ${familyName} will call you soon.`, suggested: null };
-    }),
   };
+  return api;
 }
+
+/** Every mention of a known name or alias in the words, as whole words, with where it sits. */
+function mentions(known, text) {
+  const words = ` ${String(text ?? '').toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim()} `;
+  const found = [];
+  for (const k of known ?? []) {
+    for (const name of [k.item, ...(k.aliases ?? [])].map(n => String(n).toLowerCase()).filter(Boolean)) {
+      for (let at = words.indexOf(` ${name} `); at !== -1; at = words.indexOf(` ${name} `, at + 1)) {
+        found.push({ item: k.item, start: at + 1, end: at + 1 + name.length });
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * The one known item the words name, or null. A mention inside a longer one is part of it ("bag" in "brown bag"),
+ * so "brown bag" is the brown bag. Null when nothing matches, when a word fits two items ("bag" with two bags:
+ * the model asks which one), or when the words name two items apart ("the green bag or the brown handbag?":
+ * the card must not jump while the question is being asked).
+ */
+export function matchKnown(known, text) {
+  const all = mentions(known, text);
+  const outer = all.filter(m => !all.some(o => o.start <= m.start && o.end >= m.end && o.end - o.start > m.end - m.start));
+  const items = new Set(outer.map(m => m.item));
+  return items.size === 1 ? [...items][0] : null;
+}
+
 
 /** Where the card points for a step 02 answer: the place it names, or where to look next. */
 export function placeOf(result) {
@@ -196,11 +253,11 @@ const missing = err => err?.status === 404 || err?.status === 405;
 
 /** rank_item JSON -> { say, suggested }. Voice rules: <=2 sentences, <=12 words each, repeat the item name. */
 export function speakStub(rank, family = 'June') {
-  if (!rank || rank.state === 'unknown_item') return { say: "I don't know that one yet. I'll ask your family to add it.", suggested: null };
+  if (!rank || rank.state === 'unknown_item') return { say: "I don't know that one yet. Your family can teach me.", suggested: null };
   const item = `your ${rank.item}`;
   const be = rank.plural ? 'are' : 'is';
   const [p1, p2] = rank.places;
-  if (!p1) return { say: `I'm not sure where ${item} ${be}. Shall I ask ${family} to help?`, suggested: null };
+  if (!p1) return { say: `I'm not sure where ${item} ${be} right now.`, suggested: null };
   if (rank.find?.state === 'carried') {
     const first = rank.search_order[0] ?? p1;
     return { say: `You had ${item} in ${rank.find.room}. Try ${first.landmark} first.`, suggested: first };
@@ -220,11 +277,11 @@ export function speakStub(rank, family = 'June') {
   return { say: `I'm not sure about ${item}. Let's check ${first.landmark} first.`, suggested: first };
 }
 
-/** After a miss: the next place to check, or offer family. */
+/** After a miss: the next place to check, or that there is nowhere else. */
 export function nextPlaceStub(rank, family = 'June') {
   const item = `your ${rank.item}`;
   const next = rank.search_order?.[0];
-  if (!next) return { say: `I'm not sure where else to look. Shall I ask ${family} to help?`, suggested: null };
+  if (!next) return { say: "I'm not sure where else to look right now.", suggested: null };
   return { say: `Okay. Let's look for ${item} on ${next.landmark}.`, suggested: next };
 }
 

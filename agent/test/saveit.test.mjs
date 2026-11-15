@@ -6,9 +6,11 @@ import { join } from 'node:path';
 import { beforeEach, test } from 'node:test';
 import { cardLines, renderCard, HEIGHT, SAFE_X, WIDTH, wrap } from '../card.mjs';
 import { applyEnvFile } from '../env.mjs';
+import { createVoiceMeter } from '../voice-meter.mjs';
 import { fakeRankItem, resetFakeHome, resolveItem } from '../fake-home.mjs';
-import { ago, cleanPhrase, createSaveIt, placeOf, speakStub } from '../saveit.mjs';
+import { ago, cleanPhrase, createSaveIt, matchKnown, placeOf, speakStub } from '../saveit.mjs';
 import { createTestCall, localHost } from '../web-call.mjs';
+import { GREETING, NAME, buildInstructions, label, sharedWords } from '../prompt.mjs';
 
 const quiet = () => {};
 beforeEach(() => resetFakeHome());
@@ -61,7 +63,7 @@ test('directions: "not there" records a miss and moves to the next place, then o
   followsVoiceRules(second.say);
   const third = await s.reportNotThere();
   assert.equal(third.suggested, null);
-  assert.match(third.say, /ask June/);
+  assert.equal(third.say, "I'm not sure where else to look right now.");
 });
 
 test('"I put my keys on the shelf" changes the next answer', async () => {
@@ -85,7 +87,7 @@ test('backend mode calls /find and falls back safely when the backend fails', as
   assert.equal(ok.state.suggested.landmark_id, 'x');
 
   const down = createSaveIt({ backendUrl: 'http://backend.test', log: quiet, fetchImpl: async () => { throw new Error('ECONNREFUSED'); } });
-  assert.equal((await down.findObject('keys')).say, "I'm not sure. Let me check with June.");
+  assert.equal((await down.findObject('keys')).say, "I'm not sure right now.");
 });
 
 test('backend mode reads step 02 /find ({ sentence, result }) and copes before /miss and /told exist', async () => {
@@ -97,7 +99,7 @@ test('backend mode reads step 02 /find ({ sentence, result }) and copes before /
     keys: { sentence: "I haven't seen your keys yet, but they usually live on the hook by the front door.",
       result: { state: 'never_seen', item: 'keys', plural: true, usual: { room: 'the hallway', landmark: 'the hook by the front door' }, query_id: 'q-2' } },
     dentures: { sentence: "I'm sorry, which thing are you looking for?", result: { state: 'unknown_item', heard: 'dentures', query_id: 'q-3' } },
-    wallet: { sentence: "I'm not sure, let me check with your family.", result: null }, // the backend's own fallback
+    wallet: { sentence: "I'm not sure right now.", result: null }, // the backend's own fallback
   };
   const calls = [];
   const s = createSaveIt({ backendUrl: 'http://backend.test', log: quiet, fetchImpl: async (url, init) => {
@@ -119,12 +121,12 @@ test('backend mode reads step 02 /find ({ sentence, result }) and copes before /
   followsVoiceRules(next.say);
   const family = await s.reportNotThere(); // the usual place was just checked: offer family
   assert.equal(family.suggested, null);
-  assert.match(family.say, /ask June/);
+  assert.equal(family.say, "I'm not sure where else to look right now.");
   assert.equal(calls.length, 1, 'no /miss call without a landmark id');
 
   const keys = await s.findObject('keys'); // never seen: the card shows the usual place...
   assert.deepEqual(keys.suggested, { room: 'the hallway', landmark: 'the hook by the front door' });
-  assert.match((await s.reportNotThere()).say, /ask June/); // ...which they just checked, so family
+  assert.equal((await s.reportNotThere()).say, "I'm not sure where else to look right now."); // ...which they just checked
 
   const unknown = await s.findObject('dentures');
   assert.equal(unknown.say, replies.dentures.sentence);
@@ -181,6 +183,225 @@ test('web-call: a fresh room per call, its token dispatches the agent as a test 
   assert.ok(!localHost('evil.example:8090') && !localHost('127.0.0.1.evil.example') && !localHost(undefined));
 });
 
+const KNOWN = [
+  { item: 'glasses', aliases: ['specs', 'reading glasses'], sentence: 'I last saw your glasses on the table about forty minutes ago.' },
+  { item: 'water bottle', aliases: ['bottle', 'water'], sentence: 'I last saw your water bottle next to the chair about two hours ago.' },
+  { item: 'watch', aliases: [], sentence: "Your watch isn't on the table anymore, and I haven't seen where it went." },
+];
+
+test('matchKnown: names and aliases as whole words, longest first', () => {
+  assert.equal(matchKnown(KNOWN, 'Where are my specs?'), 'glasses');
+  assert.equal(matchKnown(KNOWN, 'have you seen the water bottle'), 'water bottle');
+  assert.equal(matchKnown(KNOWN, 'I need some water'), 'water bottle');
+  assert.equal(matchKnown(KNOWN, 'thank you so much'), null);
+  assert.equal(matchKnown(KNOWN, 'stopwatch'), null, 'whole words only');
+  assert.equal(matchKnown([], 'glasses'), null);
+});
+
+test('snapshot at call start; what the caller says drives the logged lookup and the card', async () => {
+  const calls = [];
+  const s = createSaveIt({ backendUrl: 'http://b.test', log: quiet, fetchImpl: async url => {
+    calls.push(url);
+    const u = new URL(url);
+    if (u.pathname === '/snapshot') return { ok: true, json: async () => KNOWN };
+    if (u.pathname === '/find') return { ok: true, json: async () => ({ sentence: 'x', result: { state: 'seen', item: u.searchParams.get('item'), room: 'the classroom', landmark: 'the table', query_id: 'q-9' } }) };
+    return { ok: false, status: 404, json: async () => ({}) };
+  } });
+  assert.equal((await s.loadSnapshot()).length, 3);
+  const out = await s.noteHeard('Where are my specs?');
+  assert.equal(calls.at(-1), 'http://b.test/find?item=glasses&channel=facetime', 'logged under the item name');
+  assert.deepEqual(out.suggested, { room: 'the classroom', landmark: 'the table' });
+  assert.equal(await s.noteHeard('thank you'), null);
+  assert.equal(calls.length, 2, 'nothing looked up for small talk');
+});
+
+test('snapshot failure leaves the agent on per-question lookups', async () => {
+  const logs = [];
+  const s = createSaveIt({ backendUrl: 'http://b.test', log: e => logs.push(e), fetchImpl: async () => { throw new Error('ECONNREFUSED'); } });
+  assert.deepEqual(await s.loadSnapshot(), []);
+  assert.equal(logs[0].ok, false);
+  assert.deepEqual(await createSaveIt({ log: quiet }).loadSnapshot(), [], 'fake mode has no snapshot');
+});
+
+test('"not there" can name the thing, when the model answered from the snapshot', async () => {
+  const urls = [];
+  const s = createSaveIt({ backendUrl: 'http://b.test', log: quiet, fetchImpl: async url => {
+    urls.push(url);
+    const u = new URL(url);
+    if (u.pathname === '/snapshot') return { ok: true, json: async () => KNOWN };
+    return { ok: true, json: async () => ({ sentence: 'x', result: { state: 'seen', item: 'glasses', room: 'the classroom', landmark: 'the table', usual: { room: 'the classroom', landmark: 'the chair' } } }) };
+  } });
+  await s.loadSnapshot();
+  const next = await s.reportNotThere('my specs');
+  assert.equal(urls.at(-1), 'http://b.test/find?item=glasses&channel=facetime');
+  assert.equal(next.say, "Okay. Let's look for your glasses on the chair.");
+});
+
+test('env: X_OVERRIDE from the terminal beats the file, but never brings database keys back', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'saveit-env-'));
+  try {
+    const file = join(dir, '.env.local');
+    writeFileSync(file, 'AGENT_NAME=save-it\nBACKEND_URL=http://localhost:8000\n');
+    const env = applyEnvFile(file, { AGENT_NAME_OVERRIDE: 'save-it-bench', BACKEND_URL_OVERRIDE: 'http://127.0.0.1:8010', SUPABASE_SECRET_KEY_OVERRIDE: 'fake', DATABASE_URL_OVERRIDE: 'postgres://fake' });
+    assert.equal(env.AGENT_NAME, 'save-it-bench');
+    assert.equal(env.BACKEND_URL, 'http://127.0.0.1:8010');
+    for (const key of Object.keys(env)) assert.ok(!key.startsWith('SUPABASE_') && !key.startsWith('DATABASE_URL'), key);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('card: green while the caller\'s voice comes in, orange while Save It talks, no word, inside the safe area', () => {
+  const pixels = (px, rgb) => { let n = 0; for (let i = 0; i < px.length; i += 4) if (px[i] === rgb[0] && px[i + 1] === rgb[1] && px[i + 2] === rgb[2]) n++; return n; };
+  const view = { kind: 'place', landmark: 'the table', room: 'the classroom' };
+  const hear = renderCard(view, 'listening'), talk = renderCard(view, 'speaking'), idle = renderCard(view, 'idle');
+  assert.ok(pixels(hear, [46, 204, 113]) > 1000, 'green ring');
+  assert.equal(pixels(talk, [46, 204, 113]), 0);
+  assert.ok(pixels(talk, [255, 180, 60]) > 500, 'orange ring while talking');
+  assert.equal(pixels(idle, [46, 204, 113]) + pixels(idle, [255, 180, 60]), 0);
+  assert.deepEqual(renderCard(view, true), talk, 'true still means talking');
+  assert.deepEqual(renderCard(view, false), idle, 'false still means idle');
+  let outside = 0;
+  for (let y = 0; y < HEIGHT; y++) for (let x = 0; x < WIDTH; x++) {
+    if (x >= SAFE_X && x < WIDTH - SAFE_X) continue;
+    const i = (y * WIDTH + x) * 4;
+    if (hear[i] === 46 && hear[i + 1] === 204 && hear[i + 2] === 113) outside++;
+  }
+  assert.equal(outside, 0, 'the light stays inside the part FaceTime shows');
+});
+
+test('only a word naming exactly one item is looked up: no junk logging, no blanked card', async () => {
+  const urls = [];
+  const s = createSaveIt({ backendUrl: 'http://b.test', log: quiet, fetchImpl: async url => {
+    urls.push(url);
+    if (new URL(url).pathname === '/snapshot') return { ok: true, json: async () => KNOWN };
+    return { ok: true, json: async () => ({ sentence: 'x', result: { state: 'unknown_item' } }) };
+  } });
+  await s.loadSnapshot();
+  assert.equal(await s.noteHeard('Where are my pencils?'), null, 'unknown things: the model answers, nothing logged');
+  assert.equal(await s.noteHeard('Tell me where the blue one is first.'), null, 'follow-ups name no item');
+  assert.equal(await s.noteHeard("That's pretty tough."), null);
+  assert.deepEqual(urls, ['http://b.test/snapshot']);
+});
+
+const tone = (amplitude, ms = 10, rate = 16000) => {
+  const n = (rate * ms) / 1000;
+  return { data: Int16Array.from({ length: n }, (_, i) => Math.round(amplitude * Math.sin((2 * Math.PI * 220 * i) / rate))), sampleRate: rate, samplesPerChannel: n };
+};
+
+test('voice meter: on within 60 ms of voice, ignores clicks, waits out pauses between words, off after quiet', () => {
+  const changes = [];
+  const m = createVoiceMeter({ onChange: on => changes.push(on) });
+  for (let i = 0; i < 50; i++) m.push(tone(80)); // half a second of a quiet room
+  m.push(tone(4000)); m.push(tone(4000)); // a 20 ms click
+  for (let i = 0; i < 5; i++) m.push(tone(80));
+  assert.deepEqual(changes, [], 'a click does not light it');
+  for (let i = 0; i < 6; i++) m.push(tone(3000)); // 60 ms of voice
+  assert.deepEqual(changes, [true], 'on after 60 ms of voice');
+  for (let i = 0; i < 30; i++) m.push(tone(80)); // a 300 ms pause between words
+  assert.deepEqual(changes, [true], 'stays on through a pause');
+  for (let i = 0; i < 20; i++) m.push(tone(80)); // 500 ms of quiet in all
+  assert.deepEqual(changes, [true, false]);
+});
+
+test('voice meter: a steady hum never lights it, a voice over the hum does', () => {
+  const changes = [];
+  const m = createVoiceMeter({ onChange: on => changes.push(on) });
+  for (let i = 0; i < 400; i++) m.push(tone(900)); // 4 s of a fan or traffic, louder than the quiet threshold
+  assert.deepEqual(changes, [], 'the hum is learned as the room, not a voice');
+  for (let i = 0; i < 8; i++) m.push(tone(6000));
+  assert.deepEqual(changes, [true]);
+  for (let i = 0; i < 2; i++) m.push(tone(0)); // a dropped packet mid-hum does not reset the room's level
+  for (let i = 0; i < 60; i++) m.push(tone(900));
+  assert.deepEqual(changes, [true, false]);
+});
+
+const TWO_BOTTLES = [
+  { item: 'blue water bottle', aliases: ['water bottle', 'bottle'], looks_like: 'blue, steel', sentence: 'I last saw your blue water bottle next to the chair about two hours ago.' },
+  { item: 'green water bottle', aliases: ['water bottle', 'bottle'], looks_like: 'green, plastic', sentence: 'I last saw your green water bottle on the table about ten minutes ago.' },
+  { item: 'glasses', aliases: ['specs'], sentence: 'I last saw your glasses on the table about an hour ago.' },
+];
+
+test('prompt: Find It, looks for telling look-alikes apart, where it was before, ask only when it could be either', () => {
+  const p = buildInstructions([{ ...TWO_BOTTLES[0], result: { previous: { landmark: 'the table', minutes_ago: 180 }, usual: { landmark: 'the chair' } } }, TWO_BOTTLES[1]], 'June');
+  assert.equal(NAME, 'Find It');
+  assert.match(p, /^You are Find It,/);
+  assert.match(GREETING, /Find It/);
+  assert.match(p, /- blue water bottle; also called water bottle, bottle; looks like: blue, steel: I last saw your blue water bottle/);
+  assert.match(p, /before that: the table, about 3 hours ago; usually lives: the chair/);
+  assert.match(p, /- "water bottle", "bottle": the blue water bottle or the green water bottle/);
+  assert.match(p, /not on this list, tell them kindly that you do not know it yet/);
+  assert.doesNotMatch(p, /find_object/, 'no lookup tool when the list is loaded');
+  assert.match(buildInstructions([], 'June'), /call find_object/, 'without a list it looks things up');
+  assert.doesNotMatch(p, /Save It/);
+});
+
+const CLASSROOM = [
+  { item: 'bag', color: 'green', aliases: ['green bag', 'handbag', 'purse'], looks_like: 'green, green handbag with gold lettering', sentence: "I haven't seen your bag yet." },
+  { item: 'brown bag', color: 'brown', aliases: ['bag', 'brown handbag'], looks_like: 'brown, brown bag', sentence: 'I last saw your brown bag on the floor about twenty minutes ago.' },
+  { item: 'water bottle', color: 'dark blue', aliases: ['bottle', 'blue bottle', 'drink bottle', 'flask'], looks_like: 'dark blue, dark blue water bottle', sentence: 'I last saw your water bottle next to the chair about four hours ago.' },
+  { item: 'orange water bottle', color: 'orange', aliases: ['water bottle', 'bottle', 'drink bottle'], looks_like: 'orange, orange water bottle', sentence: 'I last saw your orange water bottle on the table about fifteen minutes ago.' },
+  { item: 'glasses', color: 'black', aliases: ['specs'], sentence: 'I last saw your glasses on the table about two hours ago.' },
+];
+
+test('prompt: an item named plain "bag" next to a brown bag is "the green bag", and "bag" means ask which one', () => {
+  const shared = sharedWords(CLASSROOM);
+  assert.deepEqual(shared.find(g => g.words.includes('bag')), { words: ['bag'], items: ['bag', 'brown bag'] });
+  assert.deepEqual(shared.find(g => g.words.includes('water bottle')).items, ['orange water bottle', 'water bottle']);
+  assert.equal(label(CLASSROOM[0], shared), 'green bag');
+  assert.equal(label(CLASSROOM[1], shared), 'brown bag');
+  assert.equal(label(CLASSROOM[2], shared), 'dark blue water bottle');
+  assert.equal(label(CLASSROOM[4], shared), 'glasses', 'nothing to tell apart: plain name');
+  assert.equal(matchKnown(CLASSROOM, 'Where is my bag?'), null, 'two bags: ask');
+  assert.equal(matchKnown(CLASSROOM, 'Where is my brown bag?'), 'brown bag', 'the "bag" inside "brown bag" is part of it');
+  assert.equal(matchKnown(CLASSROOM, 'Which one? The green bag or the brown handbag?'), null, 'a "which one?" question names two items: the card stays');
+  assert.equal(matchKnown(CLASSROOM, "I haven't seen your green bag yet."), 'bag');
+  const p = buildInstructions(CLASSROOM);
+  assert.match(p, /- "bag": the green bag or the brown bag/);
+  assert.match(p, /- "water bottle", "bottle", "drink bottle": the orange water bottle or the dark blue water bottle/);
+  assert.match(p, /- green bag; its name is "bag"; also called/);
+  assert.doesNotMatch(p, /June|check with your family|alert_caregiver|recall_life_fact/);
+  assert.match(p, /You cannot call, text or message anyone/);
+  assert.match(p, /Say each answer once/);
+});
+
+test('two water bottles: "water bottle" is ambiguous (the model asks), "blue water bottle" is not', () => {
+  assert.equal(matchKnown(TWO_BOTTLES, 'Where is my water bottle?'), null);
+  assert.equal(matchKnown(TWO_BOTTLES, 'where is my blue water bottle'), 'blue water bottle');
+  assert.equal(matchKnown(TWO_BOTTLES, 'The blue one.'), null, 'the answer to "which one" names no item');
+  assert.equal(matchKnown(TWO_BOTTLES, 'Your green water bottle is on the table.'), 'green water bottle');
+});
+
+test('the card follows the reply after "which one?", and each exchange is logged once', async () => {
+  const urls = [];
+  const s = createSaveIt({ backendUrl: 'http://b.test', log: quiet, fetchImpl: async url => {
+    urls.push(url);
+    const u = new URL(url);
+    if (u.pathname === '/snapshot') return { ok: true, json: async () => TWO_BOTTLES };
+    return { ok: true, json: async () => ({ sentence: 'x', result: { state: 'seen', item: u.searchParams.get('item'), room: 'the classroom', landmark: 'the table' } }) };
+  } });
+  await s.loadSnapshot();
+  assert.equal(await s.noteHeard('Where is my water bottle?'), null, 'ambiguous: nothing looked up or logged yet');
+  assert.equal(await s.noteSaid('The blue one or the green one?'), null);
+  assert.equal(await s.noteSaid('Which one? Your blue water bottle or the green one?'), null, 'a question naming one bottle is still a question');
+  assert.equal(await s.noteHeard('The green one.'), null);
+  const out = await s.noteSaid('Your green water bottle is on the table, about ten minutes ago.');
+  assert.deepEqual(out.suggested, { room: 'the classroom', landmark: 'the table' });
+  assert.equal(urls.at(-1), 'http://b.test/find?item=green%20water%20bottle&channel=facetime');
+  await s.noteHeard('Where are my specs?');
+  assert.equal(await s.noteSaid('Your glasses are on the table.'), null, 'already looked up from the question');
+  assert.equal(urls.filter(u => u.includes('/find')).length, 2, 'one logged question per exchange');
+  const before = urls.length;
+  const answer = await createSaveIt({ backendUrl: 'http://b.test', log: quiet, fetchImpl: async url => {
+    urls.push(url);
+    if (new URL(url).pathname === '/snapshot') return { ok: true, json: async () => TWO_BOTTLES };
+    return { ok: true, json: async () => ({ sentence: 'x', result: { state: 'seen', item: 'glasses', room: 'the classroom', landmark: 'the table' } }) };
+  } });
+  await answer.loadSnapshot();
+  assert.ok(await answer.noteSaid('I last saw your glasses on the table. Want me to stay while you look?'), 'an answer with a follow-up question still counts');
+  assert.equal(urls.length - before, 2);
+});
+
 test('relative times only', () => {
   assert.equal(ago(1), 'just now');
   assert.equal(ago(40), 'about 40 minutes ago');
@@ -210,7 +431,7 @@ test('card: everything readable stays inside the part FaceTime shows (it cropped
     { kind: 'place', landmark: 'the table beside your bed', room: 'your bedroom' },
     { kind: 'place', landmark: 'the kitchen counter', room: 'the kitchen' },
     { kind: 'place', landmark: null, room: 'your bedroom' },
-    { kind: 'text', text: 'June is on the way' },
+    { kind: 'text', text: 'Take your time, no rush' },
   ];
   const isText = (px, i) => (px[i] === 255 && px[i + 1] === 255 && px[i + 2] === 255) || (px[i] === 140 && px[i + 1] === 180 && px[i + 2] === 190);
   for (const view of views) {

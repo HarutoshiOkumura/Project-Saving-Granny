@@ -51,16 +51,20 @@ Examples use glasses (plural) seen on the kitchen counter forty minutes ago.
 - `not_there_anymore` with a different `usual` place: "Your glasses aren't on the kitchen counter anymore, but they usually live on the table beside your bed."
 - `not_there_anymore` with no usable `usual`: "Your glasses aren't on the kitchen counter anymore, and I haven't seen where they went."
 - `never_seen` with `usual`: "I haven't seen your glasses yet, but they usually live on the table beside your bed."
-- `never_seen` without `usual`: "I haven't seen your glasses yet, so let me check with your family."
+- `never_seen` without `usual`: "I haven't seen your glasses yet."
 - `unknown_item`: "I don't know your wallet yet, but your family can teach me." Name the thing from `heard` after dropping question and filler words ("where is my wallet" -> "wallet"). If that leaves anything but one or two words, we did not catch it: "I'm sorry, which thing are you looking for?" (Changed 14 Nov after a test call: the question alone sounded as if Save It had not listened.)
-- Any error, timeout or missing data: "I'm not sure, let me check with your family."
+- Any error, timeout or missing data: "I'm not sure right now."
+- Never promise to contact family or anyone else: nothing can call or message them yet (the family call is paused; Tom, 14 Nov). A test call showed the promise making the agent try a tool that does not exist and then say a second, contradictory sentence.
 
 Never offer a `usual` place that is the same as the place just ruled out.
 
 ## Agent behaviour (Vapi and the FaceTime agent)
 
-- Call the tool for every "where is" question, then say the tool's sentence word for word. Do not add places, times or guesses.
+- FaceTime agent (changed 14 Nov after a test call felt scripted and slow): when a call starts it loads every item's sentence (`GET /snapshot`) and answers in its own words from those, in one turn instead of a tool round trip. It keeps every place and time exactly as given and never adds a place, time or item; anything not in the snapshot goes through the tool. The card and the question log follow what the caller said.
+- Phone (Vapi): call the tool for every "where is" question, then say the tool's sentence word for word. Do not add places, times or guesses.
+- The assistant's spoken name is **Find It** (Tom, 14 Nov; was "Save It"). Internal ids (`save-it`) are unchanged.
+- When a question could mean more than one item (two water bottles), the FaceTime agent asks one short question by how they look ("The blue one or the green one?"), using `looks_like` from the snapshot, then answers. Only when it really could be either.
 - One question at a time. Speak slowly and warmly. Repeat the answer gladly when asked.
-- After answering (D15): "Would you like me to stay on the line while you look?" If yes, wait, then ask "Did you find them?" and report the answer with the outcome tool if it exists.
-- If the caller sounds distressed or asks for a person, say you will let their family know.
+- After answering (D15), offer to stay on the line while they look, but not after every answer (asking every time sounded robotic on the test call). If yes, wait, then ask whether they found it and report the answer with the outcome tool if it exists.
+- If the caller sounds distressed or asks for a person, be calm and reassuring. Do not promise to let anyone know until the family call exists.
 - Never say "HIPAA compliant".

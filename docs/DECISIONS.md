@@ -18,27 +18,27 @@ Candidates: YOLO-World zero-shot, SAM 3 text prompts, a Roboflow Instant or RF-D
 **D4. Does the Chert line carry caller camera and agent video?** OPEN, ask Chert staff
 This decides whether step 10 shows a photo or is audio only. Also confirm the per-call time cap and that one line means one call at a time.
 
-**D5. Where does the backend run, and what is its public HTTPS address?** DECIDED (the team, 14 Nov: MacBook Pro and iPhone 17; the rest is Claude Code's plan, not yet tried)
+**D5. Where does the backend run, and what is its public HTTPS address?** DECIDED (the team, 14 Nov: iPhone 17; changed by Tom, 14 Nov 20:50: the backend runs in a workspace on the event's Coder deployment, not on the MacBook; the rest is Claude Code's plan, not yet tried)
 Vapi needs a public HTTPS URL for the tool.
 The phone needs HTTPS to open the camera.
 
-- **Machine:** the team's MacBook Pro runs the backend during the demo, inside a Coder workspace (D6).
+- **Machine:** a Coder workspace on the event's hosted deployment (D6, `docs/CODER.md`): Tom's `save-it` unless the team picks another. Laptops only edit and run the `coder` CLI.
 - **Phone:** the lanyard phone is an iPhone 17, using Safari.
 - **Public address:** a Cloudflare Quick Tunnel started inside the workspace.
   `cloudflared tunnel --url http://localhost:8000` prints a `https://<random>.trycloudflare.com` address; put it in `PUBLIC_BASE_URL`.
-- **Why this shape:** Coder is not in the path a call takes, so a Coder hiccup cannot drop a call once the workspace is running.
-  Coder's docs do not say whether its own built-in tunnel can serve a public port reliably, so it is not used for that.
+- **Why this shape:** Coder's own port sharing cannot serve the public: the deployment caps sharing at `owner` and its license enforces the cap (checked 14 Nov).
+  A call goes phone service -> Cloudflare -> the workspace pod, so a Coder dashboard hiccup does not drop a call; a stopped workspace does.
 - **From the docs (checked 14 Nov):** a Quick Tunnel's hostname changes on every run and stops working when the process stops.
   It allows 200 in-flight requests, has no Server-Sent Events and no uptime guarantee.
   Web traffic to a workspace port does not count as Coder activity; an open editor, terminal or SSH session does.
 
 Before every test run and the demo:
 
-1. Plug in the Mac and run `caffeinate -dims` in a terminal for the whole session.
-2. Turn autostop off for the workspace (template "Default autostop" off, or `coder schedule stop <workspace> manual`), then restart the workspace, because schedule changes apply on the next build.
+1. `coder list` shows the workspace running. It stops 40 hours after it starts and users cannot change that; a restart starts a new 40 hours.
+2. Keep one VS Code window or `coder ssh <workspace>` session open to it.
 3. Start `cloudflared` once and leave it running; restart only the API if needed.
    Every new tunnel address must go into three places: `.env`, the Vapi tool's server URL, and the capture page bookmark on the iPhone.
-4. One person owns the Mac during judging: (name).
+4. One person owns the workspace during judging: (name).
 
 > **⚠ UNVERIFIED: none of the checks below has been tried yet.**
 > Run all of them in the first end-to-end test (step 03's CP1 at the latest) and write each result in `docs/STATUS.md`.
@@ -46,9 +46,9 @@ Before every test run and the demo:
 
 | # | Assumption | How you notice it failed | Fallback |
 |---|---|---|---|
-| A1 | The venue network lets `cloudflared` connect out. | `cloudflared` prints connection errors and no `trycloudflare.com` address, or `curl <address>/health` from a phone on cellular does not return `{"ok":true}`. | Put the Mac on a teammate's phone hotspot (not the lanyard iPhone) and restart `cloudflared` (then step 3 above). |
-| A2 | Coder runs a Docker workspace on the Mac, and the API starts in it. | The workspace shows Failed or Stopped in the Coder dashboard, or `curl localhost:8000/health` inside the workspace fails. | Run the API on the Mac itself (`uv run uvicorn app.main:app --port 8000`) with `cloudflared` on the Mac. Everything still works, but drop the Coder sentence from the pitch (D6). |
-| A3 | Autostop is off, so the workspace keeps running with nobody's editor open. | The workspace page in the Coder dashboard shows a stop time. | Keep a `coder ssh <workspace>` session open in a Mac terminal during judging; an open session counts as activity. |
+| A1 | The workspace's network lets `cloudflared` connect out. | `cloudflared` prints connection errors and no `trycloudflare.com` address, or `curl <address>/health` from a phone on cellular does not return `{"ok":true}`. | Run the API and `cloudflared` on a laptop (A2's fallback); on venue Wi-Fi that fails too, use a teammate's phone hotspot (not the lanyard iPhone). |
+| A2 | The workspace runs and the API starts in it. | `coder list` shows it stopped or failed, or `curl localhost:8000/health` inside the workspace fails. | Run the API on a laptop (`uv run uvicorn app.main:app --port 8000`) with `cloudflared` there (`brew install cloudflared`). Everything still works; say Coder only for development (D6). |
+| A3 | The workspace is inside its 40 hours. | The workspace page in the Coder dashboard shows a stop time before judging ends. | `coder restart <workspace>` (a new 40 hours), then start the API and the tunnel again (step 3). |
 | A4 | The address in Vapi matches the running tunnel. | A call gets silence or the fallback sentence, and the Vapi call log shows a failed tool request. | Copy the current `trycloudflare.com` address into the Vapi tool's server URL and `.env`, and reopen the capture page on the iPhone. |
 | A5 | Answers stay fast through the tunnel. | `curl -s -o /dev/null -w '%{time_total}\n' <address>/health` from a phone on cellular or another network takes more than 1 s. | Try the hotspot (A1). If it is still slow, note it in STATUS for step 11. |
 | A6 | Safari on the iPhone 17 opens the camera on the tunnel address. | The capture page shows a camera error, or the permission prompt never appears. | Settings > Apps > Safari > Camera: Allow, and open the page in Safari itself, not inside another app. For the video, use the replay path (CP4 in `PLAN.md`). |
@@ -56,7 +56,9 @@ Before every test run and the demo:
 **D6. What counts as using Coder?** DECIDED (the team, 14 Nov)
 Everything that touches camera frames runs inside a Coder workspace.
 In practice that is the whole backend, because `POST /frames` lives in the same app as the voice tools (D5).
-We run our own open-source Coder server on the demo MacBook with a Docker template, so we are the admins and no license limits apply.
+We use the event's hosted deployment (`https://coder.c1.workshop.cdr.dev`, template `tech-stack-builder`), one workspace per teammate.
+Changed by Tom, 14 Nov 20:50, from a self-hosted server on the MacBook: the hosted one needs no setup, runs off the venue Wi-Fi, and needs no ruling on whether self-hosting counts.
+Setup, limits and features: `docs/CODER.md`.
 Take a screenshot of the running workspace for Devpost.
 
 How to say it (pitch, video, Devpost):
@@ -69,9 +71,9 @@ How to say it (pitch, video, Devpost):
 - The egress allowlist is item 2 on the cut list in `PLAN.md`.
   If it gets built, add "the workspace can only reach our database and the two model providers", and remember it must also let `cloudflared` out (D5).
   If it is cut, leave that sentence out.
+  Agent Firewall (`boundary`) is turned on for the deployment, and the workspace kernel (6.12) supports its `landjail` backend.
 
-> **⚠ UNVERIFIED: whether the Coder table counts a self-hosted Coder server.**
-> Ask them. If only their hosted deployment counts, update D5 and this entry before step 03.
+> Ask the Coder table what judges check for the track (`docs/CODER.md`, "Open").
 
 ## Settle before step 05
 

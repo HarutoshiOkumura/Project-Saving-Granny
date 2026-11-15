@@ -18,6 +18,7 @@ Read these when a step touches them, not before:
 - `docs/TYPESENSE.md`: search layer, exact API syntax, prize criteria
 - `docs/DASHBOARD.md`: GUI and voice accessibility constants, pages, privacy
 - `docs/SPONSORS.md`: prizes, judging, Coder, Gemini, pitch facts
+- `docs/CODER.md`: working in a Coder workspace (`$CODER` is `true`): setup script, no Docker, no public ports, only `/home/coder` persists
 
 ## Architecture
 
@@ -48,6 +49,7 @@ app/memory/db.py         the ONLY module that talks to Supabase
 app/memory/schema.py     Pydantic models for what the memory functions return (FindResult, Place)
 app/speak.py             find_item JSON -> one spoken sentence (pure, unit-tested)
 app/ask.py               one question: ask_item, speak(), 2 s timeout, fallback, log line (for /find and voice)
+app/names.py             Typesense: spoken words -> item name before ask_item (optional, 300 ms, falls back)
 app/voice/vapi.py        Vapi tool webhook
 app/perception/schema.py Pydantic models for the perception result
 app/perception/detector.py  Roboflow calls
@@ -56,7 +58,7 @@ app/perception/filters.py   blur and duplicate checks
 app/worker/ingest.py     frame -> perception -> database
 app/web/                 capture.html, dashboard.html (static, no build step)
 agent/                   LiveKit agent for the Chert FaceTime line (separate process)
-scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py
+scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py, coder_setup.sh
 tests/                   pytest; tests/fixtures/frames/ holds staged frames
 supabase/migrations/     0001_save_it_memory.sql, 0002_lock_rls_auto_enable.sql (applied; frozen)
 supabase/tests/          test_memory.sql (scratch database only)
@@ -71,7 +73,7 @@ uv sync                                              # install (Python 3.12)
 uv run uvicorn app.main:app --reload --port 8000     # run the API
 uv run pytest -q                                     # unit tests
 uv run ruff check . && uv run ruff format .          # lint and format
-# database tests: scratch Postgres only, never the Supabase project
+# database tests: scratch Postgres only, never the Supabase project (needs Docker: a laptop, not a Coder workspace)
 docker run --name saveit-pg -e POSTGRES_PASSWORD=pw -p 54329:5432 -d pgvector/pgvector:pg16
 P=postgresql://postgres:pw@localhost:54329          # or: docker start saveit-pg
 psql $P/postgres -qc "drop database if exists saveit_test" -c "create database saveit_test"

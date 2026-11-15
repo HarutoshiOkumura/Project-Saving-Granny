@@ -233,7 +233,7 @@ def test_never_seen_with_usual() -> None:
 def test_never_seen_without_usual() -> None:
     assert (
         speak(never_seen(usual=None), NOW)
-        == "I haven't seen your glasses yet, so let me check with your family."
+        == "I haven't seen your glasses yet."
     )
 
 

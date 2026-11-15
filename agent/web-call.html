@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Save It test call</title>
+  <title>Find It test call</title>
   <style>
     :root { color-scheme: dark; --bg: #0b1418; --text: #f2f5f6; --muted: #a9bcc2; --go: #1b7f45; --stop: #8c1d18; }
     body { margin: 0; background: var(--bg); color: var(--text); font: 20px/1.5 system-ui, -apple-system, sans-serif; }
@@ -27,11 +27,11 @@
 </head>
 <body>
 <main>
-  <h1>Save It test call</h1>
+  <h1>Find It test call</h1>
   <p class="note">The same agent as the FaceTime line, from this laptop's microphone. Uses no Chert minutes. Needs the backend and <code>npm start</code> running.</p>
   <div class="screen" id="screen"><video id="card" autoplay playsinline muted></video></div>
   <div class="row">
-    <button id="call">Call Save It</button>
+    <button id="call">Call Find It</button>
     <button id="hangup" hidden>Hang up</button>
     <label><input type="checkbox" id="crop" checked> Crop like an iPhone</label>
   </div>
@@ -56,19 +56,19 @@
       if (!res.ok) throw new Error(await res.text());
       const { url, token, room: name } = await res.json();
       room = new Room();
-      room.on(RoomEvent.ParticipantConnected, p => { note(`joined: ${p.identity}`); say('Save It is here. Try "Where are my glasses?"'); });
+      room.on(RoomEvent.ParticipantConnected, p => { note(`joined: ${p.identity}`); say('Find It is here. Try "Where are my glasses?"'); });
       room.on(RoomEvent.TrackSubscribed, (track, pub, p) => {
         note(`${track.kind} from ${p.identity}`);
         if (track.kind === Track.Kind.Video) track.attach($('card'));
         if (track.kind === Track.Kind.Audio) document.body.appendChild(track.attach());
       });
-      room.on(RoomEvent.AudioPlaybackStatusChanged, () => { if (!room.canPlaybackAudio) say('Click anywhere to hear Save It.'); });
+      room.on(RoomEvent.AudioPlaybackStatusChanged, () => { if (!room.canPlaybackAudio) say('Click anywhere to hear Find It.'); });
       room.on(RoomEvent.Disconnected, () => { note('call ended'); say('Call ended.'); reset(); });
       await room.connect(url, token);
       await room.startAudio();
       await room.localParticipant.setMicrophoneEnabled(true);
       note(`in ${name}`);
-      say('Waiting for Save It to join...');
+      say('Waiting for Find It to join...');
       $('hangup').hidden = false;
     } catch (err) {
       say(`Could not start: ${err.message}`);

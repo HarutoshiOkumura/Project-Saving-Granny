@@ -17,8 +17,9 @@
 ## Coder
 - The event's hosted deployment is `https://coder.c1.workshop.cdr.dev/`, with the "Tech Stack Builder" template.
 - Workspaces have ≤ 8 cores and 8 GB, **no GPU and no USB**, so cameras stay on laptops.
-- Port sharing levels are owner, authenticated and public. Chert, Vapi and the phone capture page need a public HTTPS URL (D5).
-- Coder Agents can run coding agents in workspaces; screenshot it (D6). AI Gateway and Agent Firewall are Premium features.
+- Port sharing levels are owner, organization, authenticated and public, but this deployment caps them at owner. Chert, Vapi and the phone capture page need a public HTTPS URL, so they use a Quick Tunnel (D5, `docs/CODER.md`).
+- Coder Agents can run coding agents in workspaces; screenshot it (D6). AI Gateway and Agent Firewall are Premium features, and both are turned on for this deployment.
+- Coder Tasks (`coder tasks create`) was removed in v2.34; tutorials that use it no longer apply.
 - **Optional governance demo:** Coder's open-source `boundary` restricts an agent's network to an allowlist.
   - Install: `curl -fsSL https://raw.githubusercontent.com/coder/boundary/main/install.sh | bash`
   - Run: `boundary --log-level info --allow "domain=api.anthropic.com" --allow "domain=pypi.org" … -- claude`

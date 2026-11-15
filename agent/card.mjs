@@ -10,7 +10,8 @@ export const HEIGHT = 720;
 export const FPS = 10;
 
 const BG = [16, 40, 52], PANEL = [6, 14, 18], WHITE = [255, 255, 255], DIM = [140, 180, 190];
-const RING = [255, 180, 60], DOT = [255, 50, 50]; // marker colours from DASHBOARD.md
+const RING = [255, 180, 60], DOT = [255, 50, 50]; // marker colours from DASHBOARD.md: Save It is talking
+const HEAR_RING = [46, 204, 113], HEAR_DOT = [200, 255, 215]; // green: Save It hears the caller's voice
 const MAX_CHARS = 16, BIG = 10, SMALL = 4;         // 7 rows x 10 = 70 px glyphs; 16 x 60 px fits the safe width
 export const SAFE_X = 160;                         // margin each side that FaceTime may crop (it cut ~100 px)
 
@@ -64,18 +65,26 @@ export function cardLines(view) {
   return ['WHAT CAN I', 'HELP YOU FIND?'];
 }
 
-/** Render the card. `lit` turns on the speaking marker (the caller sees when Save It is talking). */
-export function renderCard(view, lit = false) {
+/**
+ * Render the card. `mode` sets the marker: 'speaking' (orange, pulsed by the caller of this function while
+ * Save It talks), 'listening' (steady green: the caller's voice is coming in, see voice-meter.mjs), or 'idle'.
+ * No word under the light (Tom, 14 Nov): the light alone, coming on the moment they speak.
+ * true and false still mean 'speaking' and 'idle'.
+ */
+export function renderCard(view, mode = 'idle') {
+  if (mode === true) mode = 'speaking';
+  if (mode === false) mode = 'idle';
   const px = new Uint8Array(WIDTH * HEIGHT * 4);
   fill(px, 0, 0, WIDTH, HEIGHT, BG);
-  drawText(px, 'SAVE IT', Math.round((WIDTH - textWidth('SAVE IT', SMALL)) / 2), 48, SMALL, DIM);
+  drawText(px, 'FIND IT', Math.round((WIDTH - textWidth('FIND IT', SMALL)) / 2), 48, SMALL, DIM);
   const lines = cardLines(view);
   const lineH = 9 * BIG, panelH = lines.length * lineH + 64, panelY = Math.round((HEIGHT - panelH) / 2) - 20;
   fill(px, 0, panelY, WIDTH, panelH, PANEL); // full width: cropping its ends looks the same
   lines.forEach((line, i) => drawText(px, line, Math.round((WIDTH - textWidth(line, BIG)) / 2), panelY + 32 + i * lineH, BIG, WHITE));
-  const cx = WIDTH / 2, cy = HEIGHT - 90;
-  circle(px, cx, cy, 26, lit ? RING : PANEL);
-  circle(px, cx, cy, 14, lit ? DOT : DIM);
+  const cx = WIDTH / 2, cy = HEIGHT - 100;
+  const [ring, dot] = mode === 'speaking' ? [RING, DOT] : mode === 'listening' ? [HEAR_RING, HEAR_DOT] : [PANEL, DIM];
+  circle(px, cx, cy, 26, ring);
+  circle(px, cx, cy, 14, dot);
   return px;
 }
 

@@ -14,7 +14,11 @@ export function applyEnvFile(path, env = process.env) {
     if (err.code !== 'ENOENT') throw err;
   }
   Object.assign(env, parseEnv(text));
-  for (const key of Object.keys(env)) if (key.startsWith('SUPABASE_') || key === 'DATABASE_URL') delete env[key];
+  // X_OVERRIDE set in the terminal beats X from the file: a benchmark worker beside the real one
+  // (AGENT_NAME_OVERRIDE=save-it-bench, BACKEND_URL_OVERRIDE=...) without touching .env.local.
+  for (const key of Object.keys(env)) if (key.endsWith('_OVERRIDE') && env[key]) env[key.slice(0, -'_OVERRIDE'.length)] = env[key];
+  // Last, so no override can bring them back.
+  for (const key of Object.keys(env)) if (key.startsWith('SUPABASE_') || key.startsWith('DATABASE_URL')) delete env[key];
   return env;
 }
 

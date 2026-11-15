@@ -24,8 +24,9 @@ export function usesOwnLiveKit(env = process.env) {
  * @param {{ entry: (ctx: any) => Promise<void>, prewarm?: (proc: any) => unknown }} agent the defineAgent() result
  * @param {{ file: string, agentName: string }} options
  */
-export function runAgent(agent, { file, agentName }) {
-  if (usesOwnLiveKit()) return cli.runApp(new ServerOptions({ agent: file, agentName }));
+export function runAgent(agent, { file, agentName, port }) {
+  // port: the worker's health-check server (LiveKit default 8081); a second worker beside it needs another.
+  if (usesOwnLiveKit()) return cli.runApp(new ServerOptions({ agent: file, agentName, ...(port ? { port } : {}) }));
   return serveChertRooms(agent, agentName);
 }
 

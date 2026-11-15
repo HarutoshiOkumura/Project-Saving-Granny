@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from app.memory.schema import FindResult, Place
 
-FALLBACK = "I'm not sure, let me check with your family."
+FALLBACK = "I'm not sure right now."
 UNKNOWN_ITEM = "I'm sorry, which thing are you looking for?"
 UNKNOWN_NAMED = "I don't know your {thing} yet, but your family can teach me."
 # Dropped from `heard` before naming it back ("where is my wallet" -> "wallet"). One or two words
@@ -117,7 +117,7 @@ def _never_seen(r: FindResult) -> str | None:
     usual = _usual(r.usual)
     if usual:
         return f"I haven't seen your {r.item} yet, but {_lives(r.plural)} {usual}."
-    return f"I haven't seen your {r.item} yet, so let me check with your family."
+    return f"I haven't seen your {r.item} yet."
 
 
 # ---------- pieces ----------

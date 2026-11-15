@@ -7,11 +7,13 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { AutoSubscribe, defineAgent, llm, voice } from '@livekit/agents';
 import * as google from '@livekit/agents-plugin-google';
-import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
+import { AudioStream, LocalVideoTrack, RoomEvent, TrackKind, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
 import { FPS, HEIGHT, renderCard, WIDTH } from './card.mjs';
 import { runAgent } from './chert-rooms.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
+import { GREETING, buildInstructions } from './prompt.mjs';
 import { createSaveIt } from './saveit.mjs';
+import { createVoiceMeter } from './voice-meter.mjs';
 
 const FAMILY = process.env.FAMILY_NAME || 'June';
 
@@ -20,13 +22,26 @@ const FAMILY = process.env.FAMILY_NAME || 'June';
 const MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-12-2025';
 const VOICE = process.env.GEMINI_VOICE || 'Aoede';
 
-// Optional, and not confirmed for this model in Google's docs (checked 14 Nov): GEMINI_THINKING_BUDGET=0 may
-// stop the model thinking before it answers. Unset means the model's default. Compare ttft_ms in the call log.
-const THINKING_BUDGET = process.env.GEMINI_THINKING_BUDGET;
+// Thinking off by default. Measured 14 Nov through LiveKit with spoken questions: answering from the snapshot,
+// first sound came 2.6 to 3.1 s after the question with the model's own thinking, 1.8 to 2.4 s with
+// thinkingBudget 0, same answers. Google's docs only say this model "uses thinkingBudget". Set
+// GEMINI_THINKING_BUDGET=default for the model's own behaviour, or a number of tokens.
+const THINKING_BUDGET = process.env.GEMINI_THINKING_BUDGET === 'default' ? '' : (process.env.GEMINI_THINKING_BUDGET ?? '0');
+
+// Turn-taking (Gemini's automatic activity detection). GEMINI_SILENCE_MS is how long the caller must be quiet
+// before Gemini answers; Google: a larger value "will increase the model's latency", a smaller one cuts in on
+// slow speakers. GEMINI_END_SENSITIVITY is HIGH or LOW. Unset: Gemini's defaults.
+const SILENCE_MS = process.env.GEMINI_SILENCE_MS;
+const END_SENSITIVITY = process.env.GEMINI_END_SENSITIVITY;
+const VAD = {
+  ...(SILENCE_MS ? { silenceDurationMs: Number(SILENCE_MS) } : {}),
+  ...(END_SENSITIVITY ? { endOfSpeechSensitivity: `END_SENSITIVITY_${END_SENSITIVITY.toUpperCase()}` } : {}),
+};
 
 // One JSON line per event, to the console and to logs/calls.jsonl (gitignored), so a test call can be
 // measured afterwards. Timings and tool names always; what was said only with LOG_TRANSCRIPTS=1 (testing).
-const LOG_FILE = new URL('./logs/calls.jsonl', import.meta.url);
+// CALL_LOG_FILE, AGENT_HTTP_PORT and any X_OVERRIDE (env.mjs) let a benchmark worker run beside the real one.
+const LOG_FILE = new URL(process.env.CALL_LOG_FILE || './logs/calls.jsonl', import.meta.url);
 const TRANSCRIPTS = process.env.LOG_TRANSCRIPTS === '1';
 function callLog(entry) {
   const line = JSON.stringify({ t: new Date().toISOString(), ...entry });
@@ -39,28 +54,6 @@ function callLog(entry) {
   }
 }
 
-const instructions = `You are Save It, a calm, kind helper on a FaceTime call with an older person who has memory loss.
-You help them find their belongings. You are an AI; say so if they ask.
-
-How you talk:
-- Speak slowly and warmly. Keep your own sentences short: one idea each, about twenty words at most.
-- Say the item's name every time ("your glasses"). Never say just "it" or "them".
-- One instruction per turn. Never quiz their memory. Never ask "do you remember".
-- Never tell them to climb, kneel, reach high, go outdoors or use stairs. Offer to call ${FAMILY} instead.
-- Use relative times only, like "about an hour ago". Never say a clock time.
-
-Use your tools. Never guess.
-- They ask where something is: call find_object with their words. Then say the tool's sentence exactly, word for word, even when it is long. Do not shorten it or add to it.
-- Never name a place that a tool did not give you.
-- After you say where to look, ask: "Would you like me to stay on the line while you look?"
-- They looked and it was not there: call report_not_there. Say its sentence exactly.
-- They found it: say you are glad. If they say where it was, call record_placement with kind "found".
-- They tell you where they put something: call record_placement with kind "placed". Say its sentence exactly.
-- They ask about people or their day ("Who is ${FAMILY}?"): call recall_life_fact. Say its sentence exactly.
-- They sound upset, hurt or lost, or ask for family: call alert_caregiver. Say its sentence exactly.
-- If a tool gives no answer, say: "I'm not sure. Let me check with ${FAMILY}."
-The caller can see a card on the video showing the place to look.`;
-
 /** Dispatch metadata from web-call.mjs (browser test calls). Chert's jobs carry {"chert_warm":true} or {"chert_call":...}. */
 const isTestCall = metadata => {
   try {
@@ -71,7 +64,6 @@ const isTestCall = metadata => {
 };
 
 // Said once, as soon as FaceTime is ready (greet.mjs). Chert ends a silent call 10 s after bridge_ready.
-const greeting = 'Say exactly this, warmly and slowly: "Hi, it\'s Save It. What can I help you find?"';
 
 const agent = defineAgent({
   entry: async ctx => {
@@ -83,21 +75,40 @@ const agent = defineAgent({
     // Per-call read-side state lives here, not in the model.
     const saveIt = createSaveIt({ backendUrl: process.env.BACKEND_URL || '', appToken: process.env.APP_TOKEN || '', familyName: FAMILY, log: callLog });
     const testCall = isTestCall(ctx.job?.metadata);
-    callLog({ event: 'call_start', test_call: testCall, answers_from: saveIt.mode === 'backend' ? process.env.BACKEND_URL : 'fake home (BACKEND_URL is empty)', thinking_budget: THINKING_BUDGET || 'default', transcripts: TRANSCRIPTS });
+    const knownSoon = saveIt.loadSnapshot(); // loads while the card is published
+    callLog({ event: 'call_start', test_call: testCall, answers_from: saveIt.mode === 'backend' ? process.env.BACKEND_URL : 'fake home (BACKEND_URL is empty)', thinking_budget: THINKING_BUDGET || 'default', vad: Object.keys(VAD).length ? VAD : 'default', transcripts: TRANSCRIPTS });
 
     // Video card: render on change, reuse frames. The marker pulses at 1 Hz while Save It speaks.
     const source = new VideoSource(WIDTH, HEIGHT);
     const track = LocalVideoTrack.createVideoTrack('save-it-card', source);
-    let frames = { off: renderCard({ kind: 'idle' }, false), on: renderCard({ kind: 'idle' }, true) };
-    let speaking = false;
-    const show = view => { frames = { off: renderCard(view, false), on: renderCard(view, true) }; };
+    // The marker: orange and pulsing while Save It talks; steady green the moment the caller's voice comes in
+    // (a level meter on their audio, below); dim otherwise. Talking wins over hearing (echo of our own voice).
+    const framesFor = view => ({ off: renderCard(view, 'idle'), on: renderCard(view, 'speaking'), hear: renderCard(view, 'listening') });
+    let frames = framesFor({ kind: 'idle' });
+    let speaking = false, hearing = false;
+    const show = view => { frames = framesFor(view); };
     const send = () => {
       const lit = speaking && Math.floor(Date.now() / 500) % 2 === 0;
-      source.captureFrame(new VideoFrame(lit ? frames.on : frames.off, WIDTH, HEIGHT, VideoBufferType.RGBA));
+      const frame = speaking ? (lit ? frames.on : frames.off) : hearing ? frames.hear : frames.off;
+      source.captureFrame(new VideoFrame(frame, WIDTH, HEIGHT, VideoBufferType.RGBA));
     };
     send();
     await ctx.room.localParticipant.publishTrack(track, { source: TrackSource.SOURCE_CAMERA });
     const timer = setInterval(send, 1000 / FPS);
+
+    // Light up green as soon as the caller's voice arrives (about 60 ms), not when Gemini reports it (after the
+    // first words are transcribed). A frame goes out at once on each change. The log gets 'voice' on/off: the
+    // off time is when the caller stopped talking, so replies can be timed from it.
+    const meter = createVoiceMeter({ onChange: on => { hearing = on; send(); callLog({ event: 'voice', on }); } });
+    const metered = new Set();
+    const meterIfCaller = (track, _pub, participant) => {
+      if (participant?.identity !== caller.identity || track?.kind !== TrackKind.KIND_AUDIO || metered.has(track.sid)) return;
+      metered.add(track.sid);
+      (async () => { for await (const frame of new AudioStream(track, 16000, 1)) meter.push(frame); })().catch(() => {});
+    };
+    ctx.room.on(RoomEvent.TrackSubscribed, meterIfCaller);
+    for (const pub of caller.trackPublications.values()) if (pub.track) meterIfCaller(pub.track, pub, caller);
+    const known = await knownSoon;
 
     // Each tool returns the sentence to read verbatim, and updates the card when there is a place to show.
     // A where-is answer with no place clears the card, so it never shows a place from an earlier question.
@@ -106,17 +117,24 @@ const agent = defineAgent({
       else if (clearIfNoPlace) show({ kind: 'idle' });
       return say;
     };
-    const tools = [
-      llm.tool({
+    const findObjectTool = llm.tool({
         name: 'find_object',
-        description: 'Find where one of the person\'s belongings is. Call this whenever they ask where something is.',
+        description: 'Look up where one of their things is, when it is not in your list.',
         parameters: { type: 'object', properties: { phrase: { type: 'string', description: 'Just the thing they are looking for, in their words, e.g. "glasses" or "my specs". Not the whole question.' } }, required: ['phrase'] },
         execute: async ({ phrase }) => reply(await saveIt.findObject(phrase), true),
-      }),
+      });
+    // With a snapshot there is no lookup tool: known items are in the instructions, unknown ones get "I don't know
+    // it yet" at once. The 14 Nov test call showed the model answering from the list AND calling find_object,
+    // then saying the same sentence twice, and each lookup cost a second model round (about 1.5 s).
+    // No recall_life_fact or alert_caregiver: nothing answers /facts or /alert yet, and on the test call each
+    // failed and made the agent say a second sentence ("Let me check with June"). Family calling is paused.
+    const tools = [
+      ...(known.length ? [] : [findObjectTool]),
       llm.tool({
         name: 'report_not_there',
-        description: 'The person checked the place you suggested and the item was not there. Returns the next place to check.',
-        execute: async () => reply(await saveIt.reportNotThere(), true),
+        description: 'They checked the place and the thing was not there. Returns what to say next.',
+        parameters: { type: 'object', properties: { thing: { type: 'string', description: 'The thing they were looking for, e.g. "glasses".' } } },
+        execute: async ({ thing } = {}) => reply(await saveIt.reportNotThere(thing), true),
       }),
       llm.tool({
         name: 'record_placement',
@@ -132,21 +150,6 @@ const agent = defineAgent({
         },
         execute: async ({ object_phrase, place_phrase, kind }) => reply(await saveIt.recordPlacement(object_phrase, place_phrase, kind)),
       }),
-      llm.tool({
-        name: 'recall_life_fact',
-        description: `Answer a question about the person's life, family or day, e.g. "Who is ${FAMILY}?" or "When are my pills?".`,
-        parameters: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] },
-        execute: async ({ question }) => reply(await saveIt.recallLifeFact(question)),
-      }),
-      llm.tool({
-        name: 'alert_caregiver',
-        description: `Tell ${FAMILY} that the person needs help: upset, hurt, lost, or asking for family.`,
-        parameters: { type: 'object', properties: { reason: { type: 'string', description: 'A short reason, without personal details.' } }, required: ['reason'] },
-        execute: async ({ reason }) => {
-          show({ kind: 'text', text: `${FAMILY} is on the way` });
-          return reply(await saveIt.alertCaregiver(reason));
-        },
-      }),
     ];
 
     const session = new voice.AgentSession({
@@ -154,6 +157,7 @@ const agent = defineAgent({
         model: MODEL,
         voice: VOICE,
         ...(THINKING_BUDGET ? { thinkingConfig: { thinkingBudget: Number(THINKING_BUDGET) } } : {}),
+        ...(Object.keys(VAD).length ? { realtimeInputConfig: { automaticActivityDetection: VAD } } : {}),
       }),
     });
     // The call log's timeline: caller stops speaking (caller: listening) -> agent thinking -> agent speaking.
@@ -165,9 +169,19 @@ const agent = defineAgent({
     session.on(voice.AgentSessionEventTypes.UserInputTranscribed, event => {
       if (!event.isFinal) return;
       callLog({ event: 'heard', ...(TRANSCRIPTS ? { text: event.transcript } : { words: event.transcript.split(/\s+/).filter(Boolean).length }) });
+      // The model answers known items from its instructions; the card and the question log follow what was heard.
+      saveIt.noteHeard(event.transcript).then(out => {
+        if (out) show(out.suggested ? { kind: 'place', landmark: out.suggested.landmark, room: out.suggested.room } : { kind: 'idle' });
+      });
     });
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, event => {
-      if (event.item?.role === 'assistant') callLog({ event: 'said', ...(TRANSCRIPTS ? { text: event.item.textContent ?? '' } : {}) });
+      if (event.item?.role !== 'assistant') return;
+      callLog({ event: 'said', ...(TRANSCRIPTS ? { text: event.item.textContent ?? '' } : {}) });
+      // The card and the log follow what the reply settled on: after "the blue one?" "Yes", the caller's words
+      // name no item, but the answer names the blue water bottle.
+      saveIt.noteSaid(event.item.textContent ?? '').then(out => {
+        if (out) show(out.suggested ? { kind: 'place', landmark: out.suggested.landmark, room: out.suggested.room } : { kind: 'idle' });
+      });
     });
     session.on(voice.AgentSessionEventTypes.MetricsCollected, event => {
       const m = event.metrics;
@@ -186,7 +200,7 @@ const agent = defineAgent({
     });
     await session.start({
       room: ctx.room,
-      agent: new voice.Agent({ instructions, tools }),
+      agent: new voice.Agent({ instructions: buildInstructions(known), tools }),
       record: false,
       inputOptions: {
         participantIdentity: caller.identity,
@@ -202,11 +216,11 @@ const agent = defineAgent({
     // Browser test calls have no FaceTime bridge, so no bridge_ready ever comes: greet once now instead.
     if (testCall) {
       callLog({ event: 'greet', test_call: true });
-      session.generateReply({ instructions: greeting });
+      session.generateReply({ instructions: GREETING });
     }
     const stopGreeting = greetOnBridgeReady(ctx.room, () => {
       callLog({ event: 'greet' });
-      return session.generateReply({ instructions: greeting });
+      return session.generateReply({ instructions: GREETING });
     });
     ctx.addShutdownCallback(async () => stopGreeting());
   },
@@ -215,4 +229,8 @@ const agent = defineAgent({
 export default agent;
 
 // Own LiveKit project when .env.local has its three LIVEKIT_ values; otherwise Chert rooms through chert dev.
-runAgent(agent, { file: fileURLToPath(import.meta.url), agentName: process.env.AGENT_NAME || 'save-it' });
+runAgent(agent, {
+  file: fileURLToPath(import.meta.url),
+  agentName: process.env.AGENT_NAME || 'save-it',
+  port: Number(process.env.AGENT_HTTP_PORT) || undefined, // set for a second worker (benchmarks); default 8081
+});

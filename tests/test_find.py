@@ -7,6 +7,9 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app import ask as ask_module
+from app import names
+from app.config import get_settings
 from app.main import app
 from app.memory import db
 from app.memory.schema import Channel, FindResult
@@ -120,3 +123,40 @@ def test_find_falls_back_when_database_fails(
     assert record.levelno == logging.WARNING
     assert "state=error" in record.getMessage()
     assert type(error).__name__ in record.getMessage()
+
+
+def test_find_asks_for_the_resolved_name(
+    calls: list[tuple[str, Channel]],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def fake_resolve(spoken: str) -> str:
+        return "glasses"
+
+    monkeypatch.setattr(ask_module, "resolve", fake_resolve)
+
+    with caplog.at_level(logging.INFO, logger="app.ask"):
+        response = client.get("/find", params={"item": "my spectecles"})
+
+    assert response.json()["result"]["state"] == "seen"
+    assert calls == [("glasses", "web")]
+    [record] = [r for r in caplog.records if r.name == "app.ask"]
+    assert "query='my spectecles' resolved='glasses'" in record.getMessage()
+
+
+def test_find_still_answers_when_typesense_is_down(
+    calls: list[tuple[str, Channel]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TYPESENSE_HOST", "http://127.0.0.1:9")  # nothing listens on port 9
+    monkeypatch.setenv("TYPESENSE_API_KEY", "ts_fake")
+    monkeypatch.setattr(names, "_client", None)
+    get_settings.cache_clear()
+    try:
+        response = client.get("/find", params={"item": "my specs"})
+    finally:
+        get_settings.cache_clear()
+
+    assert response.json()["sentence"] == (
+        "I last saw your glasses on the kitchen counter about forty minutes ago."
+    )
+    assert calls == [("my specs", "web")]

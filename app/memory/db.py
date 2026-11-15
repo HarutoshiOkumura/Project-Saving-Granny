@@ -1,11 +1,15 @@
-"""The only module that talks to Supabase. Every call goes through `rpc(name, params)`."""
+"""The only module that talks to Supabase. Memory functions go through `rpc(name, params)`.
+
+The one table read is `list_items`: item names and aliases for the Typesense copy (step 09) and the
+FaceTime agent's call-start snapshot. `find_item` is the read that logs no question.
+"""
 
 import asyncio
 
 from supabase import AsyncClient, AsyncClientOptions, acreate_client
 
 from app.config import get_settings
-from app.memory.schema import Channel, FindResult
+from app.memory.schema import Channel, FindResult, Item
 
 READ_TIMEOUT_S = 2.0
 
@@ -42,3 +46,27 @@ async def ask_item(query: str, channel: Channel) -> FindResult:
         client = await _get_client()
         response = await client.rpc("ask_item", params).execute()
     return FindResult.model_validate(response.data)
+
+
+async def find_item(query: str) -> FindResult:
+    """Like ask_item, but logs no question: for the snapshot, which nobody asked."""
+    params = {"p_home": str(get_settings().home_id), "p_query": query}
+    async with asyncio.timeout(READ_TIMEOUT_S):
+        client = await _get_client()
+        response = await client.rpc("find_item", params).execute()
+    return FindResult.model_validate(response.data)
+
+
+async def list_items() -> list[Item]:
+    """Every item in this home with its aliases and looks, by name. Read-only. For the Typesense
+    copy and the snapshot (looks let the FaceTime agent ask "the blue one or the green one?")."""
+    async with asyncio.timeout(READ_TIMEOUT_S):
+        client = await _get_client()
+        response = await (
+            client.table("items")
+            .select("id,name,aliases,color,description")
+            .eq("home_id", str(get_settings().home_id))
+            .order("name")
+            .execute()
+        )
+    return [Item.model_validate(row) for row in response.data]

@@ -35,6 +35,25 @@ Run (two terminals, from `agent/`; a third for the backend when `BACKEND_URL=htt
 
 Every call writes one JSON line per event to `agent/logs/calls.jsonl` (gitignored) and the console: caller and agent state changes, each tool call with milliseconds, and the model's `ttft_ms`. `LOG_TRANSCRIPTS=1` in `agent/.env.local` adds what was heard and said (testing only). `GEMINI_THINKING_BUDGET=0` is an optional latency experiment; Google's docs do not confirm it for this model (checked 14 Nov).
 
+### How the agent answers (14 Nov)
+When a call starts, the agent loads `GET /snapshot`: every item's current sentence, without logging questions. It puts them in Gemini's instructions, so a question about a known item is answered in one model turn, in the model's own words. Places and times must stay as given. The question is still logged and the card still moves: each final transcript that names an item or alias runs `/find` in the background. With a snapshot loaded the agent has no `find_object` tool: anything not on the list gets "I don't know it yet" straight away, and the question is still logged in the background when it sounds like a where-is question. Tom's 14 Nov test call showed why: the model answered the bag from the list and also called `find_object`, then said the same sentence twice, and each unknown item cost an extra model round of about 1.5 s. If `/snapshot` fails, the agent offers `find_object` and looks up each question.
+
+The assistant is called **Find It** on calls and on the card (`agent/prompt.mjs`, Tom 14 Nov). Internal ids stay `save-it` (`AGENT_NAME`, `chert dev --agent save-it`). The snapshot carries each item's looks (`color`, `description`) and where it was before or usually lives. So the agent can ask "The blue one or the green one?" when two items fit, and answer "where was it before that?", all without a lookup. Tested by voice against Gemini with two water bottles: it asked which one, then answered; every turn took about 1.5 s, so asking costs one exchange and nothing else. With one bottle it answered straight away. The card and the question log follow the reply when the question named no single item.
+
+Ambiguous words are worked out from names and aliases (`sharedWords` in `prompt.mjs`) and spelled out to the model: "bag" means the green bag or the brown bag, so ask. An item named plain "bag" is called "the green bag". Without this, on Tom's 14 Nov test call it asked about the water bottle but not the bag. The card and the question log follow a single item only: a word naming exactly one item in what the caller said, or a statement in the reply. They never follow a "which one?" question.
+
+No tool or sentence may promise to contact family (family calling is paused). On the same call, "let me check with your family" made the model call `alert_caregiver`. Nothing answers `/alert`, so the failure came back as "I'm not sure. Let me check with June." and was said as a second answer. `alert_caregiver` and `recall_life_fact` are removed until their backends exist.
+
+The card's marker shows who is talking: orange and pulsing while Save It speaks, steady green the moment the caller's voice comes in. The green comes from a level meter on the caller's audio in the agent (`voice-meter.mjs`), not from Gemini, which reports speech only after transcribing the first words. Measured: green about 0.3 s after the voice starts. The meter also logs `voice` on/off events, so the time from the caller stopping to Save It answering can be read from the call log.
+
+Measured with spoken questions through LiveKit (first sound after the question ended):
+| | glasses | keys | watch |
+|---|---|---|---|
+| Lookup per question, sentence read word for word | 4.9 s | 3.3 s | 3.2 s |
+| Snapshot in the instructions | 2.6 s | 3.1 s | 3.1 s |
+| Snapshot + Gemini thinking off (default now) | 1.8 s | 1.9 s / 2.4 s | 2.1 s / 2.3 s |
+Without the lookup tool (later the same evening): glasses 2.6 s, bag 2.5 s (said once), pencils (unknown) 1.9 s, watch 3.8 s. Gemini's own time varies run to run, so the median across thinking-off runs is about 2.2 s. Gemini alone, sent the audio directly with no tools, took 1.5 to 3 s. Answers also got shorter: 3.5 to 4.4 s of speech, down from 6.8 to 7.6 s.
+
 ### Test without FaceTime (uses no Chert minutes)
 Chert counts FaceTime minutes per call (trial: 50, at most 5 a call; `npx @trychert/facetime@0.1.0-beta.20 doctor` shows what is left). Holding the line costs nothing, and the agent opens no Gemini session until someone joins. For everyday testing, skip FaceTime:
 1. Backend (repo root): `uv run uvicorn app.main:app --port 8000`

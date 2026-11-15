@@ -25,7 +25,8 @@ Coder for Good judges "User Experience & Design". The Typesense sheet also score
   - FaceTime on an iPhone held upright shows only about the middle 84% of the width (test call, 14 Nov): keep everything readable at least 160 px from each side;
   - ≤ 2 lines × ≤ 16 characters (22 ran into the cropped edges);
   - 70 px white text on a dark band (was 56 px);
-  - shows the place name and the last-seen crop.
+  - shows the place name and the last-seen crop;
+  - a marker below the text: orange ring and red dot pulsing at 1 Hz while Save It talks; steady green the moment the caller's voice comes in, from a level meter on their audio (`agent/voice-meter.mjs`; about 0.3 s from voice to green on the video, measured 14 Nov); dim otherwise. No word under the light: Tom's choice on 14 Nov, after a version that said LISTENING.
 - **Marker on a photo** (values from Mira's `object_finder.py`):
   - a red (255,50,50) dot with a warm orange (255,180,60) ring;
   - a 3 s slow zoom to it, then a 3 s pulse.
