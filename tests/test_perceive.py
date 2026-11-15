@@ -24,19 +24,24 @@ class Fakes:
         self.detections: list[Detection] | Exception = []
         self.answer: str | None = gemini_answer()
         self.looks = 0
+        self.prompts: dict[str, str] = {}
+        self.hold: asyncio.Event | None = None  # a look waits on it when set
 
 
 @pytest.fixture
 def fakes(monkeypatch: pytest.MonkeyPatch) -> Fakes:
     state = Fakes()
 
-    async def fake_detect(frame: Frame) -> list[Detection]:
+    async def fake_detect(frame: Frame, prompts: dict[str, str]) -> list[Detection]:
+        state.prompts = prompts
         if isinstance(state.detections, Exception):
             raise state.detections
         return state.detections
 
     async def fake_look(jpeg: bytes, context: Any) -> Perception | None:
         state.looks += 1
+        if state.hold is not None:
+            await state.hold.wait()
         return None if state.answer is None else Perception.model_validate_json(state.answer)
 
     monkeypatch.setattr(detector, "detect", fake_detect)
@@ -59,9 +64,11 @@ def test_a_demo_item_at_the_gate_opens_it(fakes: Fakes) -> None:
     result = run()
 
     assert result.gate == "open"
+    assert result.vlm == "answered"
     assert fakes.looks == 1
     assert result.perception is not None and result.perception.items[0].item == "keys"
     assert result.vlm_ms is not None and result.error is None
+    assert fakes.prompts == detector.PROMPTS  # the measured wording for every demo item
 
 
 def test_below_the_gate_gemini_is_not_asked(fakes: Fakes) -> None:
@@ -70,6 +77,7 @@ def test_below_the_gate_gemini_is_not_asked(fakes: Fakes) -> None:
     result = run()
 
     assert result.gate == "closed"
+    assert result.vlm == "not_asked"
     assert result.perception is None
     assert result.vlm_ms is None
     assert result.detections == fakes.detections
@@ -82,6 +90,7 @@ def test_an_empty_look_asks_gemini_with_the_gate_closed(fakes: Fakes) -> None:
     result = run(empty_look=True)
 
     assert result.gate == "empty_look"
+    assert result.vlm == "answered"
     assert result.perception is not None
     assert result.perception.landmarks_in_view == [TABLE, CHAIR]
     assert fakes.looks == 1
@@ -104,14 +113,115 @@ def test_a_failed_detector_fails_open(fakes: Fakes) -> None:
     assert result.perception.items[0].box_source == "gemini"
 
 
-def test_an_item_sam3_cannot_look_for_fails_open(fakes: Fakes) -> None:
-    wallet = CONTEXT.items[0].model_copy(update={"item": "wallet"})
-    context = CONTEXT.model_copy(update={"items": [*CONTEXT.items, wallet]})
+def test_an_item_without_a_measured_wording_is_looked_for_by_name(fakes: Fakes) -> None:
+    brown = CONTEXT.items[0].model_copy(update={"item": "brown bag"})
+    context = CONTEXT.model_copy(update={"items": [*CONTEXT.items, brown]})
 
     result = asyncio.run(perceive.perceive(FRAME, context))
 
+    assert fakes.prompts["brown bag"] == "brown bag"
+    assert fakes.prompts["bag"] == "green handbag"
+    assert result.gate == "closed"
+    assert fakes.looks == 0
+
+
+def test_more_items_than_sam3_takes_fails_open(fakes: Fakes) -> None:
+    extra = [CONTEXT.items[0].model_copy(update={"item": f"thing {n:02}"}) for n in range(12)]
+    context = CONTEXT.model_copy(update={"items": [*CONTEXT.items, *extra]})
+
+    result = asyncio.run(perceive.perceive(FRAME, context))
+
+    assert len(fakes.prompts) == detector.MAX_PROMPTS
     assert result.gate == "no_prompt"
     assert fakes.looks == 1
+
+
+async def settle() -> None:
+    """Let every ready task run until it blocks."""
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+
+def within(coro: Any) -> Any:
+    """Run with a deadline, so a slot bug fails the test instead of hanging the suite."""
+    return asyncio.run(asyncio.wait_for(coro, timeout=5))
+
+
+def test_a_newer_frame_takes_the_waiting_frames_place(fakes: Fakes) -> None:
+    fakes.detections = [sam("keys", 0.9, KEYS_BOX)]
+
+    async def three_frames() -> list[perceive.PerceiveResult]:
+        slots = perceive.VlmSlots(1)
+        fakes.hold = asyncio.Event()
+        look = lambda: perceive.perceive(FRAME, CONTEXT, vlm_slots=slots, device="d")  # noqa: E731
+        first = asyncio.create_task(look())  # takes the slot, waits on Gemini
+        await settle()
+        second = asyncio.create_task(look())  # waits in line
+        await settle()
+        third = asyncio.create_task(look())  # replaces the second in line
+        await settle()
+        fakes.hold.set()
+        return [await first, await second, await third]
+
+    first, second, third = within(three_frames())
+
+    assert [r.vlm for r in (first, second, third)] == ["answered", "busy", "answered"]
+    assert second.perception is None and second.gate == "open"
+    assert third.vlm_wait_ms is not None
+    assert fakes.looks == 2
+
+
+def test_a_free_slot_is_released_after_the_look(fakes: Fakes) -> None:
+    fakes.detections = [sam("keys", 0.9, KEYS_BOX)]
+
+    async def two_in_a_row() -> list[str]:
+        slots = perceive.VlmSlots(1)
+        return [
+            (await perceive.perceive(FRAME, CONTEXT, vlm_slots=slots, device="d")).vlm for _ in "ab"
+        ]
+
+    assert within(two_in_a_row()) == ["answered", "answered"]
+
+
+def test_slots_serve_the_device_that_waited_longest_one_frame_each() -> None:
+    async def scenario() -> list[str]:
+        slots = perceive.VlmSlots(1)
+        order: list[str] = []
+        assert await slots.acquire("a")
+
+        async def wait(name: str, device: str) -> None:
+            if await slots.acquire(device):
+                order.append(name)
+                slots.release()
+            else:
+                order.append(f"{name} dropped")
+
+        tasks = [asyncio.create_task(wait("b1", "b"))]
+        await settle()
+        tasks.append(asyncio.create_task(wait("c1", "c")))
+        await settle()
+        tasks.append(asyncio.create_task(wait("b2", "b")))  # replaces b1, at the back of the line
+        await settle()
+        slots.release()
+        await asyncio.gather(*tasks)
+        return order
+
+    # b1 is dropped at once; b2 joins the line behind c1, which waited longer.
+    assert within(scenario()) == ["b1 dropped", "c1", "b2"]
+
+
+def test_a_cancelled_waiter_leaves_the_line_and_loses_no_slot() -> None:
+    async def scenario() -> bool:
+        slots = perceive.VlmSlots(1)
+        assert await slots.acquire("a")
+        waiter = asyncio.create_task(slots.acquire("b"))
+        await settle()
+        waiter.cancel()
+        await settle()
+        slots.release()
+        return await slots.acquire("c")  # free at once, not handed to the cancelled waiter
+
+    assert within(scenario()) is True
 
 
 def test_a_failed_gemini_call_gives_no_perception(fakes: Fakes) -> None:
@@ -121,6 +231,7 @@ def test_a_failed_gemini_call_gives_no_perception(fakes: Fakes) -> None:
     result = run()
 
     assert result.gate == "open"
+    assert result.vlm == "failed"
     assert result.perception is None
     assert result.vlm_ms is not None
 

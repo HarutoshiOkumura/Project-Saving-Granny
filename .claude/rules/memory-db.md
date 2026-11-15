@@ -43,7 +43,8 @@ The contract table is in `CLAUDE.md`.
 - Pass `p_visible` as a list, `[]` when nothing was seen, never null. Null makes `mark_absent` match nothing.
 - Call `mark_absent` only for landmarks the model listed in `landmarks_in_view`, with every item it placed on that landmark in `p_visible`.
 - Insert the observation first. If its `idempotency_key` already exists, the frame was already processed, so skip it.
-- `crop_url` holds a storage path (`crops/<home>/<item>/<utc timestamp>.jpg`), not a URL. Sign it at read time for 1 hour.
+- `crop_url` holds a storage path (`crops/<home>/<item>/<utc timestamp>.jpg`), not a URL. Sign it at read time for 1 hour. The first segment is the bucket; the object key is the rest (`db.crop_key`: item name as a slug, time as `20261115T010203456789Z`).
+- The worker inserts observations with an upsert on `(home_id, idempotency_key)` that ignores duplicates; an empty answer means the frame was processed before. The key is `<device_id>/<captured_at in UTC, ISO 8601>`.
 - The voice tools call `ask_item`, not `find_item`, so every question is logged and `record_outcome` has a `query_id` to update. `find_item` is for reads that should not be logged.
 - `find_item` is `stable`: in one SQL statement it sees the snapshot from before any write in that statement. Check a write's effect in a separate statement.
 

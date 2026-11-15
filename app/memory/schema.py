@@ -99,6 +99,23 @@ class Belief(BaseModel):
     minutes_ago: int | None = None
 
 
+class HomeMap(BaseModel):
+    """Names to ids for the write path, keyed by the names `perception_context` uses
+    (landmarks by address, "room > landmark")."""
+
+    model_config = ConfigDict(frozen=True)
+
+    rooms: dict[str, UUID]
+    capture_allowed: dict[str, bool]
+    landmarks: dict[str, UUID]
+    landmark_rooms: dict[str, str]
+    items: dict[str, UUID]
+
+    @property
+    def no_capture_rooms(self) -> set[str]:
+        return {room for room, allowed in self.capture_allowed.items() if not allowed}
+
+
 class PerceptionContext(BaseModel):
     """`perception_context` jsonb: the names the vision model may answer with, and the beliefs."""
 

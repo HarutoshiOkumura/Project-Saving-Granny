@@ -18,7 +18,7 @@ Read these when a step touches them, not before:
 
 ```
 WRITE PATH (slow, may fail softly)
-phone camera page --JPEG every 1-2 s--> POST /frames
+phone camera page --JPEG every 0.5 s--> POST /frames
    -> filters (blur, duplicate) -> perceive() -> log_sighting() / mark_absent() -> Supabase
                                    |-- Roboflow detector: boxes and crops
                                    |-- Gemini Flash: room, landmark, relation, in_hand as strict JSON
@@ -43,6 +43,7 @@ app/memory/db.py         the ONLY module that talks to Supabase
 app/memory/schema.py     Pydantic models for what the memory functions return (FindResult, Place)
 app/speak.py             find_item JSON -> one spoken sentence (pure, unit-tested)
 app/ask.py               one question: ask_item, speak(), 2 s timeout, fallback, log line (for /find and voice)
+app/auth.py              the APP_TOKEN check for /frames (and later the dashboard)
 app/voice/vapi.py        Vapi tool webhook
 app/perception/schema.py Pydantic models for the perception result, boxes, the Gemini JSON schema
 app/perception/detector.py  Roboflow calls (SAM 3, the gate and crop boxes)
@@ -51,7 +52,7 @@ app/perception/perceive.py  perceive(): SAM 3 gate + Gemini; the drop rules
 app/perception/frame.py  load_frame() (upright, no metadata) and crop()
 app/perception/retry.py  timeout and retries for every model call
 app/perception/filters.py   blur and duplicate checks
-app/worker/ingest.py     frame -> perception -> database
+app/worker/ingest.py     frame -> filters -> perception -> drop rules -> database (POST /frames)
 app/web/                 capture.html, dashboard.html (static, no build step)
 agent/                   LiveKit agent for the Chert FaceTime line (separate process)
 scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py

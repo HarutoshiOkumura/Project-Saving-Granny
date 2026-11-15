@@ -15,13 +15,14 @@ import httpx
 from pydantic import BaseModel, ConfigDict
 
 from app.config import Settings, get_settings
+from app.memory.schema import PerceptionContext
 from app.perception.frame import Frame
 from app.perception.retry import GiveUp, describe, with_retries
 from app.perception.schema import Detection, box_from_pixels
 
 # One wording per demo item, the one that won the step 04 bake-off. Plain names box single keys
-# instead of the bunch, and "reading glasses" misses the glasses. A new item needs a line here;
-# until it has one, perceive() sends every frame to Gemini.
+# instead of the bunch, and "reading glasses" misses the glasses. An item without a line here is
+# looked for by its own name (`prompts_for`), which nobody has measured; add a line once it is.
 PROMPTS: dict[str, str] = {
     "bag": "green handbag",
     "glasses": "eyeglasses",
@@ -29,6 +30,7 @@ PROMPTS: dict[str, str] = {
     "watch": "wristwatch",
     "water bottle": "dark blue bottle",
 }
+MAX_PROMPTS = 16  # the endpoint's limit (SAM 3 doc)
 # Answers below this are not returned at all. The gate (settings.sam3_gate) is higher; weaker
 # masks still help pick a tight crop box when they agree with Gemini's box.
 FLOOR = 0.1
@@ -60,12 +62,19 @@ class _Response(BaseModel):
     prompt_results: list[_PromptResult]
 
 
-async def detect(frame: Frame) -> list[Detection]:
-    """Every instance of every demo item's prompt at FLOOR or more. Raises DetectorError."""
+def prompts_for(context: PerceptionContext) -> dict[str, str]:
+    """Item to wording for every item in the context: the measured wording, else the item's name.
+    At most MAX_PROMPTS; an item past that is left to Gemini (the gate cannot open for it)."""
+    names = [i.item for i in context.items]
+    return {name: PROMPTS.get(name, name) for name in names[:MAX_PROMPTS]}
+
+
+async def detect(frame: Frame, prompts: dict[str, str] = PROMPTS) -> list[Detection]:
+    """Every instance of every prompt at FLOOR or more. Raises DetectorError."""
     settings = get_settings()
     body = {
         "image": {"type": "base64", "value": base64.b64encode(frame.jpeg).decode()},
-        "prompts": [{"type": "text", "text": text} for text in PROMPTS.values()],
+        "prompts": [{"type": "text", "text": text} for text in prompts.values()],
         "output_prob_thresh": FLOOR,
         "format": "polygon",
         "disable_model_monitoring": True,
@@ -76,7 +85,7 @@ async def detect(frame: Frame) -> list[Detection]:
             timeout_s=settings.detector_timeout_s,
             what="sam3",
         )
-        return parse_response(data, frame.width, frame.height)
+        return parse_response(data, frame.width, frame.height, prompts)
     except Exception as exc:
         raise DetectorError(describe(exc)) from exc
 

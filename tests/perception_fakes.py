@@ -68,9 +68,11 @@ def gemini_answer(
     )
 
 
-def sam3_answer(*predictions: tuple[int, float, list[list[float]]]) -> dict[str, Any]:
+def sam3_answer(
+    *predictions: tuple[int, float, list[list[float]]], prompts: int = 5
+) -> dict[str, Any]:
     """SAM 3's JSON, shaped like step 04's recorded answers: (prompt index, score, polygon)."""
-    results: dict[int, list[dict[str, Any]]] = {i: [] for i in range(5)}
+    results: dict[int, list[dict[str, Any]]] = {i: [] for i in range(prompts)}
     for index, confidence, polygon in predictions:
         results[index].append({"masks": [polygon], "confidence": confidence, "format": "polygon"})
     return {

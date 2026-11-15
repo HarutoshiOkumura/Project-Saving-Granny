@@ -33,6 +33,7 @@ These load when you work on perception, the ingest worker, the bake-off or the r
 - Image resolution: Gemini 3 spends 1,120 tokens per image by default (`high`). Keep it: `medium` (560) held the close-ups in step 04 but was not tried at a distance, where keys and glasses need the pixels.
 - Leave sampling settings (temperature and the like) at their defaults.
 - Timeout 10 s, enforced with `asyncio.timeout` around the call (step 04: median about 3 s, worst 7.2 s over 51 calls). At most 3 retries with backoff, then skip the frame. Process frames concurrently, never one after another.
+- At most `VLM_IN_FLIGHT` (2) Gemini calls at once. A frame that finds them busy waits in a line one frame long per device; a newer frame replaces it, and the replaced one is dropped (`busy`). Plain dropping lost the second looks of two CP3 put-downs (step 06).
 - Turn the SDK's own retries off: `genai.Client(api_key=..., http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1)))`. By default it retries 408, 409, 429 and 5xx up to 4 times inside one call; in step 04 that stacked with our retries into a 429 storm, and its `timeout` let one call run 94 s. Treat any `status` other than `completed` (for example `incomplete` or `failed`) as a skipped frame.
 - Known weakness: vision language models tend to report an object that is not there when the prompt names it. The bake-off's empty frames measure this; the item cut and the drop rules contain it; beliefs stay out of the prompt (next bullet).
 - Prompt: report only listed items that are clearly visible; `in_hand` means in the wearer's own hand; never describe people; when unsure, lower the confidence rather than guess.
@@ -48,8 +49,9 @@ These load when you work on perception, the ingest worker, the bake-off or the r
 
 ## Frame filters
 
-- Blur: variance of the Laplacian below the blur cut: drop the frame.
-- Duplicate: SSIM at or above the duplicate cut against the last accepted frame: drop it, except when the last accepted frame left a tentative sighting open. Keep that frame, because it is the second look the two-frame rule needs.
+- Blur: variance of the Laplacian below the blur cut: drop the frame. Measured at 640 px; it mostly measures texture, so keep the cut low (a sharp frame of glasses on a plain table scores 60).
+- Duplicate: SSIM at or above the duplicate cut against the last accepted frame: drop it, except when the last accepted frame left a tentative sighting open. Keep that frame, because it is the second look the two-frame rule needs. The worker approximates "left a tentative sighting open" as "logged a sighting".
+- Also keep a duplicate once the last accepted frame is `DUPLICATE_REFRESH_S` (10 s) old, so a camera left looking at an empty landmark still feeds `mark_absent`.
 
 ## Absence
 
@@ -63,7 +65,7 @@ These load when you work on perception, the ingest worker, the bake-off or the r
 
 ## Detectors and Roboflow
 
-- D3: SAM 3 gates Gemini. Every filtered frame goes to `POST /sam3/concept_segment` with the prompts "green handbag", "eyeglasses", "bunch of keys", "wristwatch", "dark blue bottle" (plain names box single keys; "reading glasses" misses). Any demo item at 0.5 or more opens the gate; otherwise no Gemini call, except one empty look at most every 30 s for `mark_absent`.
+- D3: SAM 3 gates Gemini. Every filtered frame goes to `POST /sam3/concept_segment` with the prompts "green handbag", "eyeglasses", "bunch of keys", "wristwatch", "dark blue bottle" (plain names box single keys; "reading glasses" misses). An item without a measured wording is prompted with its own name (`detector.prompts_for`). Any demo item at 0.5 or more opens the gate; otherwise no Gemini call, except one empty look at most every 30 s for `mark_absent`.
 - Ignore SAM 3's label (it called a distant watch "bunch of keys"). Crop with the SAM 3 box that overlaps Gemini's `box_2d` most (IoU at least 0.5), else Gemini's box.
 - Send `disable_model_monitoring: true` on every Roboflow call (D20).
 
@@ -85,7 +87,10 @@ They are settings (`ROOM_CUT`, `ITEM_CUT`, `SAM3_GATE`, ...); step 05 measured t
 | Roboflow Instant confidence | 0.85 to 0.99 |
 | SAM 3 gate confidence | 0.5 (step 04: opened 12/12 item frames, 1/5 empty; step 05: item frames 0.57 and up, empty up to 0.55, so do not raise it) |
 | RF-DETR confidence | tune on fixtures, if one is trained |
-| Frame interval | 2 s (D10) |
+| Frame interval | 0.5 s (D10, step 06: 2 s confirmed 0 of 4 CP3 put-downs) |
+| Duplicate refresh | 10 s |
+| Empty look | at most every 30 s |
+| Gemini calls in flight | 2, plus a line one frame long per device |
 
 ## Disclosure
 

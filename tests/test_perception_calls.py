@@ -274,6 +274,31 @@ def test_detect_sends_the_bakeoff_prompts_with_monitoring_off(roboflow: Any) -> 
     }
 
 
+def test_prompts_for_uses_the_measured_wording_or_the_item_name() -> None:
+    brown = CONTEXT.items[0].model_copy(update={"item": "brown bag"})
+    context = CONTEXT.model_copy(update={"items": [brown, *CONTEXT.items]})
+
+    prompts = detector.prompts_for(context)
+
+    assert list(prompts) == ["brown bag", "bag", "glasses", "keys", "watch", "water bottle"]
+    assert prompts["brown bag"] == "brown bag"
+    assert prompts["keys"] == "bunch of keys"
+
+
+def test_detect_maps_answers_back_through_the_prompts_it_sent(roboflow: Any) -> None:
+    answer = sam3_answer((1, 0.7, rectangle(0, 0, 500, 1000)), prompts=2)
+    seen = roboflow(httpx.Response(200, json=answer))
+    prompts = {"brown bag": "brown bag", "bag": "green handbag"}
+
+    (detection,) = asyncio.run(detector.detect(FRAME, prompts))
+
+    assert [p["text"] for p in json.loads(seen[0].content)["prompts"]] == [
+        "brown bag",
+        "green handbag",
+    ]
+    assert (detection.item, detection.prompt) == ("bag", "green handbag")
+
+
 def test_detect_turns_mask_polygons_into_normalized_boxes(roboflow: Any) -> None:
     roboflow(
         httpx.Response(

@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     perception_timeout_s: Seconds = 10.0
     detector_timeout_s: Seconds = 5.0
 
+    # Ingest worker (step 06, D10, D11)
+    blur_cut: Annotated[float, Field(ge=0.0)] = 25.0
+    duplicate_cut: Fraction = 0.95
+    duplicate_refresh_s: Seconds = 10.0  # a still camera still sends a frame this often
+    empty_look_every_s: Seconds = 30.0  # Gemini asked with no item in sight, for mark_absent
+    vlm_in_flight: Annotated[int, Field(ge=1)] = 2  # more frames than this are dropped, not queued
+
     # Vapi (step 03)
     vapi_server_secret: SecretStr | None = None
 

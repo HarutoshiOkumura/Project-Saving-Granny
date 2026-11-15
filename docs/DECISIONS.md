@@ -116,11 +116,15 @@ Default: one enrolled item per category, so a detected "glasses" is the glasses.
 **D9. Embedding model and width.** OPEN
 The schema uses `vector(768)`, which fits Roboflow-hosted CLIP ViT-L/14. If you choose another encoder, change the width in the migration before loading it. One encoder for every embedding.
 
-**D10. What triggers a frame?** OPEN
-Default: every 2 seconds, then the blur and duplicate filters. A hand-in-view gate is a later refinement.
+**D10. What triggers a frame?** DECIDED (step 06 CP3 replays, 15 Nov, by Claude Code with the user)
+A JPEG every **0.5 seconds**, then the blur and duplicate filters. A hand-in-view gate is a later refinement.
+The CP3 take (66 s, four put-downs, each item in view for about 1 s) replayed at both rates: every 2 s confirmed 0 of 4 put-downs (one frame each, so every stay stayed tentative); every 0.5 s confirmed 4 of 4, once frames waiting for Gemini queue one deep per device instead of being dropped.
+Cost for that minute: 132 SAM 3 calls and 16 Gemini calls (the gate kept 107 frames from Gemini). For 24/7 that is 7,200 SAM 3 calls an hour before the duplicate filter.
 
 **D11. Thresholds.** OPEN (perception cuts tuned in step 05; blur and duplicate cuts wait for step 06)
 Defaults: blur below 25; duplicate at SSIM 0.95 or more; detector confidence per model as in `.claude/rules/perception.md`; stay-merge window 10 minutes; 3 empty looks to conclude absence; spoken confidence cut at 0.5. All are guesses. Tune on the fixture frames in step 05 and write the tuned values here.
+
+Step 06, 15 Nov, measured on the CP3 take: blur cut 25 kept (a sharp frame of the glasses on the plain table scores 60, so variance of the Laplacian mostly measures texture; smears scored 14 to 46); duplicate cut 0.95 kept (SSIM 0.1 to 0.6 while walking, 0.72 to 0.98 holding still, so it drops only the stillest frames). Added: `DUPLICATE_REFRESH_S` 10, `EMPTY_LOOK_EVERY_S` 30, `VLM_IN_FLIGHT` 2.
 
 Step 05, 15 Nov: `perceive()` live on all 17 fixture frames (`RUN_LIVE=1 LIVE_FRAMES=all uv run pytest -m live -s`), 17/17 fully correct (room, landmark and item).
 The cuts are settings (`ROOM_CUT`, `ITEM_CUT`, `SAM3_GATE`, `PERCEPTION_TIMEOUT_S`, `DETECTOR_TIMEOUT_S`); every value below is unchanged from its default, because the measurements leave room on the safe side of each.
