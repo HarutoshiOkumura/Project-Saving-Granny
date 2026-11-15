@@ -106,8 +106,9 @@ How to say it (pitch, video, Devpost):
 
 ## Settle before step 05
 
-**D7. Room recognition.** OPEN
+**D7. Room recognition.** OPEN (default kept in step 05)
 Default: the language model picks the room from the list. Add the embedding vote (`match_room`) only if it confuses rooms on the fixture frames.
+Step 05 (15 Nov): Gemini named the room right on 17/17 fixture frames, lowest `room_confidence` 0.80, so no embedding vote. The fixtures have no bathroom frame yet, so confusion between rooms is untested.
 
 **D8. Whose item is it?** OPEN
 Default: one enrolled item per category, so a detected "glasses" is the glasses. Add `match_item` only if the demo needs two look-alike items.
@@ -118,8 +119,20 @@ The schema uses `vector(768)`, which fits Roboflow-hosted CLIP ViT-L/14. If you 
 **D10. What triggers a frame?** OPEN
 Default: every 2 seconds, then the blur and duplicate filters. A hand-in-view gate is a later refinement.
 
-**D11. Thresholds.** OPEN
+**D11. Thresholds.** OPEN (perception cuts tuned in step 05; blur and duplicate cuts wait for step 06)
 Defaults: blur below 25; duplicate at SSIM 0.95 or more; detector confidence per model as in `.claude/rules/perception.md`; stay-merge window 10 minutes; 3 empty looks to conclude absence; spoken confidence cut at 0.5. All are guesses. Tune on the fixture frames in step 05 and write the tuned values here.
+
+Step 05, 15 Nov: `perceive()` live on all 17 fixture frames (`RUN_LIVE=1 LIVE_FRAMES=all uv run pytest -m live -s`), 17/17 fully correct (room, landmark and item).
+The cuts are settings (`ROOM_CUT`, `ITEM_CUT`, `SAM3_GATE`, `PERCEPTION_TIMEOUT_S`, `DETECTOR_TIMEOUT_S`); every value below is unchanged from its default, because the measurements leave room on the safe side of each.
+
+| Cut | Value | Evidence |
+|---|---|---|
+| Room cut | 0.6 | Lowest `room_confidence` on a right room: 0.80. |
+| Item cut | 0.5 | Lowest confidence on a right item: 0.95. Gemini reported no stray or wrong item at all, so nothing tests the cut from above. |
+| SAM 3 gate | 0.5 | Lowest best score on an item frame: 0.57 (the medium watch on the table). Highest on an empty frame: 0.55 (a "wristwatch" on bare carpet). The two overlap, so the gate errs open: a wrong opening costs one Gemini call that then sees nothing, and a wrong closing loses a put-down. Do not raise it. |
+| Gemini timeout | 10 s | Median 2.7 s, worst 5.3 s over 17 calls (step 04: worst 7.2 s over 51). |
+| SAM 3 timeout | 5 s | Median 0.56 s, worst 0.86 s over 20 calls (step 04: worst 0.95 s). |
+| Box match | IoU 0.5 | Every one of the 12 crop boxes came from SAM 3, IoU 0.68 to 0.99 against the hand-drawn boxes. |
 
 **D12. No-capture rooms.** OPEN
 The database refuses to store anything for them, but the frame has already been sent to a model API by the time the room is known. Options: (a) accept and disclose; (b) a Pause button on the capture page; (c) run a local room classifier first and drop the frame before any network call. Default: (a) plus (b).

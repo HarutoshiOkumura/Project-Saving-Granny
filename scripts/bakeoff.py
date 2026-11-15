@@ -27,7 +27,6 @@ import argparse
 import asyncio
 import base64
 import hashlib
-import io
 import json
 import math
 import statistics
@@ -41,24 +40,28 @@ from typing import Any, Literal
 import httpx
 from google import genai
 from google.genai import types
-from PIL import Image, ImageOps
-from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.config import get_settings
 from app.memory import db
 from app.memory.schema import Belief, PerceptionContext
+from app.perception.detector import parse_response
+from app.perception.frame import JPEG_QUALITY, MAX_SIDE, load_frame
+from app.perception.perceive import apply_drop_rules
+from app.perception.schema import (
+    Box,
+    Detection,
+    ItemSeen,
+    Perception,
+    box_from_pixels,
+    build_json_schema,
+    iou,
+)
+from app.perception.vlm import build_input, build_prompt
 
 ROOT = Path(__file__).resolve().parent.parent
 FRAMES_DIR = ROOT / "tests" / "fixtures" / "frames"
 CACHE_DIR = ROOT / ".cache" / "bakeoff"
 
-# What the capture page is expected to send: the long side at 1920 px, JPEG quality 85.
-MAX_SIDE = 1920
-JPEG_QUALITY = 85
-
-# Worker cuts from the perception rules (D11).
-ROOM_CUT = 0.6
-ITEM_CUT = 0.5
 IOU_HIT = 0.5
 
 YOLO_VERSION = "v2-l"
@@ -70,7 +73,6 @@ SAM3_THRESHOLDS = (0.3, 0.5, 0.7)
 GEMINI_MODELS = ("gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-4-hydrogen")
 NO_MINIMAL_THINKING = {"gemini-4-hydrogen"}  # thinking doc: minimal is not supported on Gemini 4
 GEMINI_TIMEOUT_S = 60.0  # generous on purpose: the bake-off measures latency, it does not cut it
-RELATIONS = ("in", "next_to", "on", "under", "unknown")
 
 # Two or three wordings per item for the open-vocabulary detectors (docs/ROBOFLOW.md section 2).
 WORDINGS: dict[str, dict[str, str]] = {
@@ -107,9 +109,6 @@ TEST_BELIEFS = {
     "watch": ("chair", 25),
     "bag": ("floor", 8),
 }
-
-Box = tuple[float, float, float, float]  # ymin, xmin, ymax, xmax on 0..1000
-
 
 # --------------------------------------------------------------------------------------------
 # Frames and ground truth
@@ -170,23 +169,6 @@ def parse_name(stem: str, context: PerceptionContext) -> Truth:
     raise ValueError(f"{stem}: expected close|medium_<item>_<landmark>_<nn> or empty_<x>_<nn>")
 
 
-def prepare_jpeg(path: Path) -> tuple[bytes, int, int]:
-    """Upright (EXIF rotation applied), long side at most MAX_SIDE, JPEG with no metadata.
-
-    A file that already is that, as the committed fixtures are, is sent byte for byte: it is not
-    compressed twice, and its cache keys match the frames it was made from.
-    """
-    data = path.read_bytes()
-    with Image.open(io.BytesIO(data)) as raw:
-        if raw.format == "JPEG" and not raw.getexif() and max(raw.size) <= MAX_SIDE:
-            return data, raw.width, raw.height
-        image = ImageOps.exif_transpose(raw).convert("RGB")
-    image.thumbnail((MAX_SIDE, MAX_SIDE))
-    buffer = io.BytesIO()
-    image.save(buffer, "JPEG", quality=JPEG_QUALITY)
-    return buffer.getvalue(), image.width, image.height
-
-
 def load_frames(context: PerceptionContext) -> list[Frame]:
     boxes = json.loads((FRAMES_DIR / "boxes.json").read_text())
     frames = []
@@ -196,38 +178,16 @@ def load_frames(context: PerceptionContext) -> list[Frame]:
         box = boxes.get(path.stem)
         if (box is None) != (truth.item is None):
             raise ValueError(f"{path.name}: boxes.json must have a box for item frames only")
-        jpeg, width, height = prepare_jpeg(path)
-        frames.append(Frame(path.stem, truth, tuple(box) if box else None, jpeg, width, height))
+        # Upright, at most MAX_SIDE, no metadata; the committed fixtures pass byte for byte.
+        image = load_frame(path.read_bytes())
+        frames.append(
+            Frame(
+                path.stem, truth, tuple(box) if box else None, image.jpeg, image.width, image.height
+            )
+        )
     if not frames:
         raise SystemExit(f"no frames in {FRAMES_DIR}")
     return frames
-
-
-# --------------------------------------------------------------------------------------------
-# Boxes
-# --------------------------------------------------------------------------------------------
-
-
-def iou(a: Box, b: Box) -> float:
-    y0, x0 = max(a[0], b[0]), max(a[1], b[1])
-    y1, x1 = min(a[2], b[2]), min(a[3], b[3])
-    inter = max(0.0, y1 - y0) * max(0.0, x1 - x0)
-    area_a = (a[2] - a[0]) * (a[3] - a[1])
-    area_b = (b[2] - b[0]) * (b[3] - b[1])
-    union = area_a + area_b - inter
-    return inter / union if union > 0 else 0.0
-
-
-def box_from_pixels(x0: float, y0: float, x1: float, y1: float, width: int, height: int) -> Box:
-    return (y0 / height * 1000, x0 / width * 1000, y1 / height * 1000, x1 / width * 1000)
-
-
-def box_from_gemini(raw: list[int]) -> Box | None:
-    """`box_2d` is [ymin, xmin, ymax, xmax] on 0..1000; tolerate swapped corners."""
-    if len(raw) != 4:
-        return None
-    ya, xa, yb, xb = (min(max(float(v), 0.0), 1000.0) for v in raw)
-    return (min(ya, yb), min(xa, xb), max(ya, yb), max(xa, xb))
 
 
 # --------------------------------------------------------------------------------------------
@@ -314,13 +274,6 @@ async def cached(kind: str, key: dict[str, Any], call: Callable[[], Awaitable[An
 
 
 @dataclass(frozen=True)
-class Detection:
-    item: str
-    confidence: float
-    box: Box
-
-
-@dataclass(frozen=True)
 class DetectorResult:
     frame: Frame
     detections: list[Detection] | None  # None when the call failed
@@ -353,7 +306,10 @@ async def run_yolo(
     for p in out.response.get("predictions", []):
         x, y, w, h = p["x"], p["y"], p["width"], p["height"]
         box = box_from_pixels(x - w / 2, y - h / 2, x + w / 2, y + h / 2, frame.width, frame.height)
-        detections.append(Detection(by_class[p["class"]], p["confidence"], box))
+        item = by_class[p["class"]]
+        detections.append(
+            Detection(item=item, prompt=wording[item], confidence=p["confidence"], box=box)
+        )
     return DetectorResult(frame, detections, out.latency_s, None)
 
 
@@ -376,101 +332,13 @@ async def run_sam3(
     out = await cached("sam3", {**body, "image": frame.sha}, call)
     if out.response is None:
         return DetectorResult(frame, None, None, out.error)
-    items = list(wording)
-    detections = []
-    for result in out.response["prompt_results"]:
-        item = items[result["prompt_index"]]
-        for p in result["predictions"]:
-            points = [pt for polygon in p["masks"] for pt in polygon]
-            if not points:
-                continue
-            xs, ys = [pt[0] for pt in points], [pt[1] for pt in points]
-            box = box_from_pixels(min(xs), min(ys), max(xs), max(ys), frame.width, frame.height)
-            detections.append(Detection(item, p["confidence"], box))
+    detections = parse_response(out.response, frame.width, frame.height, wording)
     return DetectorResult(frame, detections, out.latency_s, None)
 
 
 # --------------------------------------------------------------------------------------------
-# Gemini: schema, prompt and call
+# Gemini: the schema, prompt and drop rules are app.perception's, so this measures what runs
 # --------------------------------------------------------------------------------------------
-
-
-def build_schema(context: PerceptionContext) -> dict[str, Any]:
-    """Enums from the context, sorted, so one context always gives the same schema."""
-    addresses = sorted(lm.address for lm in context.landmarks)
-    number = {"type": "number", "minimum": 0, "maximum": 1}
-    item = {
-        "type": "object",
-        "properties": {
-            "item": {"type": "string", "enum": sorted(i.item for i in context.items)},
-            "note": {"type": "string"},
-            "box_2d": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
-            "landmark": {"type": "string", "enum": [*addresses, "none"]},
-            "relation": {"type": "string", "enum": list(RELATIONS)},
-            "in_hand": {"type": "boolean"},
-            "confidence": number,
-        },
-        "required": ["item", "note", "box_2d", "landmark", "relation", "in_hand", "confidence"],
-        "additionalProperties": False,
-    }
-    return {
-        "type": "object",
-        "properties": {
-            "room": {"type": "string", "enum": [*sorted(context.rooms), "unknown"]},
-            "room_confidence": number,
-            "landmarks_in_view": {"type": "array", "items": {"type": "string", "enum": addresses}},
-            "items": {"type": "array", "items": item},
-        },
-        "required": ["room", "room_confidence", "landmarks_in_view", "items"],
-        "additionalProperties": False,
-    }
-
-
-def build_prompt(context: PerceptionContext, beliefs: list[Belief] | None) -> str:
-    places = "\n".join(f"- {a}" for a in sorted(lm.address for lm in context.landmarks))
-    things = "\n".join(f"- {i.item}: {i.looks_like}" for i in context.items)
-    lines = [
-        "You are the eyes of a memory aid for a person with dementia. This photo comes from a "
-        "phone worn on a lanyard at chest height. Report which of their belongings you can see "
-        "and where each one is.",
-        "",
-        f"Rooms: {', '.join(sorted(context.rooms))}. "
-        'Use "unknown" if you cannot tell which room this is.',
-        "",
-        'Places, written "room > place":',
-        places,
-        "",
-        "Belongings to look for:",
-        things,
-    ]
-    if beliefs:
-        lines += [
-            "",
-            "Where the belongings were last seen, from earlier photos. This may be out of date "
-            "and is not evidence about this photo:",
-        ]
-        for b in beliefs:
-            where = "in the wearer's hand" if b.in_hand else (b.address or "unknown place")
-            lines.append(f"- {b.item}: {where}, {b.minutes_ago} minutes ago")
-    lines += [
-        "",
-        "Rules:",
-        "- Report a belonging only if you can see it in this photo. Never report one because it "
-        "is on the list or was seen somewhere before. An empty list is a good answer.",
-        "- room_confidence: from 0 to 1.",
-        '- landmark: the listed place the belonging is on, in or under. Use "none" if it is not '
-        "at a listed place.",
-        "- relation: how it sits at that place: on, in, under or next_to; unknown if unsure.",
-        "- in_hand: true only if it is in the wearer's own hand.",
-        "- landmarks_in_view: every listed place clearly visible in the photo, with or without "
-        "anything on it.",
-        "- box_2d: a tight box around the belonging as [ymin, xmin, ymax, xmax], normalized to "
-        "0-1000.",
-        "- confidence: from 0 to 1. When unsure, give a lower number rather than guess.",
-        "- note: a few words on what you see, such as colour and what it is next to. Never "
-        "describe people.",
-    ]
-    return "\n".join(lines)
 
 
 def tempting_beliefs(context: PerceptionContext) -> list[Belief]:
@@ -480,32 +348,6 @@ def tempting_beliefs(context: PerceptionContext) -> list[Belief]:
         for item, (lm, minutes) in TEST_BELIEFS.items()
         if lm in address and item in {i.item for i in context.items}
     ]
-
-
-class SeenItem(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    item: str
-    landmark: str
-    relation: str = "unknown"
-    in_hand: bool = False
-    confidence: float
-    box_2d: list[int] = []
-    note: str = ""
-
-    @field_validator("confidence")
-    @classmethod
-    def _clamp(cls, value: float) -> float:
-        return min(max(value, 0.0), 1.0)
-
-
-class Seen(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    room: str
-    room_confidence: float
-    landmarks_in_view: list[str]
-    items: list[SeenItem]
 
 
 @dataclass(frozen=True)
@@ -560,7 +402,7 @@ FAILED_IN_A_ROW: dict[str, int] = {}
 @dataclass(frozen=True)
 class GeminiResult:
     frame: Frame
-    seen: Seen | None
+    seen: Perception | None
     latency_s: float | None
     error: str | None
     thought_tokens: int | None
@@ -597,15 +439,7 @@ async def run_gemini(
     async def create() -> Any:
         return await client.aio.interactions.create(
             model=config.model,
-            input=[
-                {"type": "text", "text": prompt},
-                {
-                    "type": "image",
-                    "data": frame.b64,
-                    "mime_type": "image/jpeg",
-                    "resolution": config.resolution,
-                },
-            ],
+            input=build_input(frame.jpeg, prompt, config.resolution),
             response_format={"type": "text", "mime_type": "application/json", "schema": schema},
             generation_config={"thinking_level": config.thinking},
             store=False,
@@ -624,26 +458,19 @@ async def run_gemini(
     if out.response is None:
         return GeminiResult(frame, None, None, out.error, None)
     try:
-        seen = Seen.model_validate_json(out.response["output_text"])
+        seen = Perception.model_validate_json(out.response["output_text"])
     except ValueError as exc:
         return GeminiResult(frame, None, out.latency_s, f"bad JSON: {exc}"[:200], None)
     return GeminiResult(frame, seen, out.latency_s, None, out.response["thought_tokens"])
 
 
-def stored_items(seen: Seen, context: PerceptionContext) -> dict[str, SeenItem]:
-    """What the worker would pass to `log_sighting`: drop rules 2 to 5 of the perception rules."""
-    no_capture = set(context.rooms) - {lm.room for lm in context.landmarks}
-    if seen.room in no_capture or seen.room == "unknown" or seen.room_confidence < ROOM_CUT:
-        return {}
-    kept: dict[str, SeenItem] = {}
-    for item in seen.items:
-        if item.landmark == "none" and not item.in_hand:
-            continue
-        if item.confidence < ITEM_CUT:
-            continue
-        if item.item not in kept or item.confidence > kept[item.item].confidence:
-            kept[item.item] = item
-    return kept
+def stored_items(seen: Perception, context: PerceptionContext) -> dict[str, ItemSeen]:
+    """What the worker would pass to `log_sighting`: the drop rules at the configured cuts."""
+    settings = get_settings()
+    verdict = apply_drop_rules(
+        seen, context, room_cut=settings.room_cut, item_cut=settings.item_cut
+    )
+    return {item.item: item for item in verdict.kept}
 
 
 # --------------------------------------------------------------------------------------------
@@ -755,7 +582,7 @@ def gemini_row(results: list[GeminiResult], context: PerceptionContext) -> list[
             extras += 1
             notes.append(f"{f.name}: extra {', '.join(others)}")
         raw = [i for i in r.seen.items if i.item == f.truth.item]
-        if any((b := box_from_gemini(i.box_2d)) and iou(b, f.box) >= IOU_HIT for i in raw):
+        if any(i.box and iou(i.box, f.box) >= IOU_HIT for i in raw):
             boxed.add(f.name)
 
     def n(names: set[str], distance: str) -> str:
@@ -871,7 +698,7 @@ async def bake(only: set[str], concurrency: int, gemini_concurrency: int, full: 
             http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1)),
         )
         gemini_gate = asyncio.Semaphore(gemini_concurrency)
-        schema = build_schema(context)
+        schema = build_json_schema(context)
         beliefs = tempting_beliefs(context)
         rows = []
         for config in gemini_plan(full):
@@ -888,7 +715,7 @@ async def bake(only: set[str], concurrency: int, gemini_concurrency: int, full: 
             "## Gemini, perception schema, no detector",
             "",
             "Counts after the worker's drop rules (room cut "
-            f"{ROOM_CUT}, item cut {ITEM_CUT}). Beliefs runs use: "
+            f"{settings.room_cut}, item cut {settings.item_cut}). Beliefs runs use: "
             + "; ".join(f"{b.item} on {b.address}" for b in beliefs)
             + ".",
             "",

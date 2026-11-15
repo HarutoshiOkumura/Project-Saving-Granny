@@ -44,9 +44,12 @@ app/memory/schema.py     Pydantic models for what the memory functions return (F
 app/speak.py             find_item JSON -> one spoken sentence (pure, unit-tested)
 app/ask.py               one question: ask_item, speak(), 2 s timeout, fallback, log line (for /find and voice)
 app/voice/vapi.py        Vapi tool webhook
-app/perception/schema.py Pydantic models for the perception result
-app/perception/detector.py  Roboflow calls
-app/perception/vlm.py    Gemini call with a JSON schema
+app/perception/schema.py Pydantic models for the perception result, boxes, the Gemini JSON schema
+app/perception/detector.py  Roboflow calls (SAM 3, the gate and crop boxes)
+app/perception/vlm.py    Gemini call with a JSON schema, and its prompt
+app/perception/perceive.py  perceive(): SAM 3 gate + Gemini; the drop rules
+app/perception/frame.py  load_frame() (upright, no metadata) and crop()
+app/perception/retry.py  timeout and retries for every model call
 app/perception/filters.py   blur and duplicate checks
 app/worker/ingest.py     frame -> perception -> database
 app/web/                 capture.html, dashboard.html (static, no build step)
@@ -101,14 +104,17 @@ Details and edge cases load from `.claude/rules/memory-db.md` when you open data
 
 ## The perception contract
 
-`perceive(frame, context) -> Perception`, where every name comes from `perception_context()`:
+`perceive(load_frame(jpeg), context, empty_look=...) -> PerceiveResult`, whose `perception` is a `Perception` (or None: gate closed, or the model failed) where every name comes from `perception_context()`:
 
 ```json
 {"room": "kitchen", "room_confidence": 0.9,
- "landmarks_in_view": ["counter"],
- "items": [{"item": "glasses", "landmark": "counter", "relation": "on",
-            "in_hand": false, "confidence": 0.8, "note": "black glasses beside the kettle"}]}
+ "landmarks_in_view": ["kitchen > counter"],
+ "items": [{"item": "glasses", "landmark": "kitchen > counter", "relation": "on",
+            "in_hand": false, "confidence": 0.8, "note": "black glasses beside the kettle",
+            "box": [412, 230, 468, 371], "box_source": "sam3"}]}
 ```
+
+Landmarks are addresses (`room > landmark`). Gemini answers `box_2d`; it arrives as `box` (`[ymin, xmin, ymax, xmax]` on 0..1000), swapped for SAM 3's box when they agree. The worker then calls `apply_drop_rules()` and `crop(frame, box)`.
 
 The model may only answer with names from the lists (use JSON-schema enums built at call time). `"unknown"` is always an allowed room and `"none"` an allowed landmark. Details load from `.claude/rules/perception.md`.
 

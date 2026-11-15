@@ -30,6 +30,7 @@ known-third-party = ["supabase"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "--strict-markers"
+markers = ["live: calls paid APIs with the real .env; skipped unless RUN_LIVE=1"]
 
 [dependency-groups]
 dev = [

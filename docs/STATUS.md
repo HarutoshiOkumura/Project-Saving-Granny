@@ -2,7 +2,7 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sat 14 Nov, 19:50 EST
+Last updated: Sat 14 Nov, 20:40 EST
 
 ## Steps
 
@@ -13,8 +13,8 @@ Last updated: Sat 14 Nov, 19:50 EST
 | 02 | Find API and speak() | done | `GET /find?item=...&channel=web` -> `app.ask.ask()` -> `db.ask_item` + `speak()`; 80 new tests (90 total). Live on Supabase: "my specs" -> "I last saw your glasses on the kitchen counter about forty minutes ago." 20 calls: median 50 ms, worst 114 ms; first call after a restart 115 to 160 ms (one 865 ms outlier, likely cold DNS). Dead database: fallback at 2.0 s; bad hostname: 46 ms. Smoke rows deleted |
 | 03 | Phone voice | todo | Call `app.ask.ask(item, "phone")`, not `db.ask_item` + `speak()`: the 2 s timeout, fallback and log line are already there. `/find` has no auth yet; once the tunnel is up anyone can query it, so add a token check then |
 | 04 | Detector bake-off | done | CP2 passes zero-shot (table below, D3). `scripts/bakeoff.py` (cached in `.cache/bakeoff/`), 17 frames renamed to the pattern, hand-drawn boxes in `tests/fixtures/frames/boxes.json`, `db.perception_context()` + `PerceptionContext`, Pillow added; 23 new tests (113 total). Keys description fixed on Supabase and in `seed.sql`. Fixtures are 1920 px copies. Deferred by the team to save time: the extra frames (below) |
-| 05 | Perception module | todo | Build the D3 design: SAM 3 gates Gemini. `gemini-3.6-flash`, thinking `low`, resolution `high`, no beliefs in the prompt, 10 s `asyncio.timeout`, SDK retries off (rules file). Lift `build_schema`, `build_prompt` and `stored_items` from `scripts/bakeoff.py`; they are what was measured |
-| 06 | Ingest worker | todo | Catch `22023` from `log_sighting` (room and landmark disagree) and skip the frame |
+| 05 | Perception module | done | `perceive(frame, context, empty_look=)` in `app/perception/`: SAM 3 gate, then Gemini (thinking `low`, resolution `high`, no beliefs, `store=False`), SAM 3 box swapped in at IoU 0.5. SAM 3 failure fails open; Gemini failure gives `perception=None`. `apply_drop_rules()`, `load_frame()` (EXIF rotation, no metadata), `crop()`, shared retries. Live on all 17 fixtures: **17/17 fully correct** (room, landmark, item), all 12 crop boxes from SAM 3. 101 new tests (214 total) incl. an offline replay of the recorded live answers. The bake-off now imports the moved schema, prompt and drop rules (its cache still hits) |
+| 06 | Ingest worker | todo | Catch `22023` from `log_sighting` (room and landmark disagree) and skip the frame. Call `perceive(load_frame(jpeg), context, empty_look=...)`: the worker owns the 30 s empty-look clock (no setting yet). Log `PerceiveResult.gate`, `detector_ms`, `vlm_ms` and `Verdict.dropped` reasons. Call `perception_context()` without `p_room`: with it, unlinked capture rooms look like no-capture rooms to `apply_drop_rules` (fails closed) |
 | 07 | Capture page | todo | |
 | 08 | Dashboard | todo | |
 | 09 | Typesense | todo | optional |
@@ -37,6 +37,7 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 ## Defaults taken from DECISIONS.md
 
 - D1, D2: the B School classroom (one room plus a no-capture bathroom corner), landmarks table, chair, floor; items glasses, keys, bag, watch, water bottle. Re-seeded on Supabase on 14 Nov; `seed.sql` can now be re-run and refuses while anything is logged.
+- D7: Gemini picks the room (17/17 right in step 05); no embedding vote. D8: one item per category, no `match_item`. D9: no embeddings used yet. D21: the prompt forbids describing people; crops are padded item boxes.
 - D11: stay-merge 10 min, 3 empty looks to contradict, now at least 30 s apart (`mark_absent` `p_min_gap`); confidence cut 0.5.
 - D13: one home, `HOME_ID=11111111-1111-1111-1111-111111111111`.
 - D15: `ask_item` logs every question so `record_outcome` can retire a wrong answer; whether the voice asks "did you find it?" is still open.
@@ -44,9 +45,12 @@ State is one of: todo, doing, done, stubbed (works with fake data), blocked (say
 
 ## Tuned values
 
-- SAM 3 gate: 0.5 on any demo item, prompts "green handbag, eyeglasses, bunch of keys, wristwatch, dark blue bottle".
-- Gemini timeout: 10 s (worst of 51 calls 7.2 s). Room cut 0.6 and item cut 0.5 unchanged: 0 false alarms with them.
-- Still guesses: blur and duplicate cuts (step 05).
+Step 05 live run, 15 Nov (`RUN_LIVE=1 LIVE_FRAMES=all uv run pytest -m live -s`, report in `.cache/live/perception.md`): all defaults kept, margins in D11.
+
+- Room cut 0.6: lowest right `room_confidence` 0.80. Item cut 0.5: lowest right item 0.95, no stray item at all.
+- SAM 3 gate 0.5: item frames score 0.57 and up, empty frames up to 0.55 (bare carpet). Overlapping, so it errs open; do not raise it.
+- Timeouts: Gemini 10 s (median 2.7 s, worst 5.3 s), SAM 3 5 s (median 0.56 s, worst 0.86 s).
+- Still guesses: blur and duplicate cuts (step 06 builds the filters).
 
 Bake-off, 14 Nov (8 close-ups, 4 medium, 5 empty; frames at 1920 px; box hit = IoU 0.5 with the hand-drawn box; Gemini counts after the worker's drop rules):
 
@@ -80,7 +84,7 @@ Every Gemini run had the room right on every frame, no stray items, and every em
 - Tom: the dummy data now uses the classroom names. Pull, then reload `supabase/dummy_data.sql` if you want test sightings.
 - D4: pick a cut-off time for Chert's answer; FaceTime is 4 to 6 hours.
 - D15: keep "did you find it?"? It needs a second Vapi tool; the database side (`ask_item`, `record_outcome`) is ready.
-- Photo idea (14 Nov): keep the item's last good view instead of its best-confidence one, and a wider "context" crop that shows the landmark. Decide in step 05/06 on real fixture crops. Full frames stay out (hard rule).
+- Photo idea (14 Nov): keep the item's last good view instead of its best-confidence one, and a wider "context" crop that shows the landmark. Decide in step 06. Step 05 evidence (crops in `.cache/live/crops/`): close-up crops are sharp and clear (129 to 1024 px wide; the smallest is the keys on the carpet); medium-distance crops are 69 to 268 px wide and blurry, the medium watch on the chair only 69 x 108. Suggestion: keep the tight crop, and add a context crop at least about 320 px on its short side when the item box is small. Full frames stay out (hard rule).
 - `package.json`, `package-lock.json` and `node_modules/` (`@supabase/server`) appeared in the repo root at 15:36. The app is Python; delete them unless someone needs them.
 
 ## Things that differ from the docs or from CLAUDE.md
@@ -92,6 +96,9 @@ Every Gemini run had the room right on every frame, no stray items, and every em
 - Roboflow's docs say Model Monitoring does not save inference images by default; every call also sends `disable_model_monitoring: true` (D20).
 - Perception switched from Claude to Gemini on 14 Nov (D24). `anthropic` is gone from the dependencies; `google-genai` 3.3.0 replaces it. `ANTHROPIC_API_KEY` became `GOOGLE_API_KEY`, and the local `.env` had its stale `PERCEPTION_MODEL=claude-haiku-5-5` replaced. `CLAUDE.md`, the perception rules, steps 00, 04, 05 and 11, `docs/ROBOFLOW.md` and D6 now say Gemini.
 - Google's docs now lead with the Interactions API; `generateContent` is legacy but supported. Interactions stores requests by default, hence `store=False` everywhere.
+- Step 05: the perception contract in `CLAUDE.md` now shows what the code returns: `perceive()` returns `PerceiveResult` (gate, timings, `perception` or None), landmarks are addresses, items carry `box` and `box_source`. New modules `perceive.py`, `frame.py` and `retry.py` added to the layout.
+- SAM 3's response fields (`prompt_index`, `masks`, `confidence`) are not in Roboflow's SAM 3 page; `detector.py` reads them as recorded in step 04 and 05 (`tests/fixtures/responses/`).
+- Live runs print a `DeprecationWarning` from supabase-py 2.34.1 itself: with no `httpx_client` in the options it passes `timeout` and `verify` to postgrest-py, which deprecated them. Unit tests never hit it. Fix in step 06, which adds Storage to `db.py`: pass one `httpx.AsyncClient` as `httpx_client` (it is shared by PostgREST and Storage, so give uploads a longer timeout than the 2 s read path) and re-check the read-path latency.
 - New modules not in the original layout: `app/ask.py` (one question: database, `speak()`, fallback, log line; shared by `/find` and the voice tools) and `app/memory/schema.py` (`FindResult`, `Place`). Added to the layout in `CLAUDE.md`.
 - `speak()` choices where the voice rules are silent: `usual` has no relation, so it is always "on" its landmark (as in the template); a missing `confident` counts as not confident; 58 and 59 minutes say "fifty-five" to stay in the 10 to 59 band. Change the rules file to change these.
 - Ruff treats the repo's `supabase/` SQL folder as a first-party package, so `pyproject.toml` marks `supabase` as third-party for import sorting.

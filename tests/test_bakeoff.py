@@ -1,4 +1,5 @@
-"""The bake-off's pure parts: file-name ground truth, boxes, the schema and the drop rules."""
+"""The bake-off's own parts: file-name ground truth and frame loading. The schema, prompt,
+boxes and drop rules it measures are app.perception's, tested in tests/test_perception.py."""
 
 import json
 from pathlib import Path
@@ -65,36 +66,16 @@ def test_parse_name_rejects_names_off_the_pattern(stem: str) -> None:
         bakeoff.parse_name(stem, CONTEXT)
 
 
-def test_iou() -> None:
-    box = (0.0, 0.0, 100.0, 100.0)
-    assert bakeoff.iou(box, box) == 1.0
-    assert bakeoff.iou(box, (200.0, 200.0, 300.0, 300.0)) == 0.0
-    assert bakeoff.iou(box, (0.0, 50.0, 100.0, 150.0)) == pytest.approx(1 / 3)
+def test_load_frames_keeps_committed_fixtures_byte_for_byte() -> None:
+    """The bake-off's cache keys are hashes of these bytes."""
+    frames = bakeoff.load_frames(CONTEXT)
+
+    assert len(frames) == len(list(FRAMES.glob("*.jpg")))
+    for frame in frames:
+        assert frame.jpeg == (FRAMES / f"{frame.name}.jpg").read_bytes()
 
 
-def test_gemini_boxes_are_clamped_and_reordered() -> None:
-    assert bakeoff.box_from_gemini([600, 900, 100, -5]) == (100.0, 0.0, 600.0, 900.0)
-    assert bakeoff.box_from_gemini([1, 2, 3]) is None
-
-
-def test_schema_is_deterministic_and_uses_addresses() -> None:
-    reordered = CONTEXT.model_copy(
-        update={"landmarks": CONTEXT.landmarks[::-1], "items": CONTEXT.items[::-1]}
-    )
-    schema = bakeoff.build_schema(CONTEXT)
-
-    assert json.dumps(schema) == json.dumps(bakeoff.build_schema(reordered))
-    item = schema["properties"]["items"]["items"]["properties"]
-    assert item["landmark"]["enum"] == [
-        "b_school_classroom > chair",
-        "b_school_classroom > floor",
-        "b_school_classroom > table",
-        "none",
-    ]
-    assert schema["properties"]["room"]["enum"][-1] == "unknown"
-
-
-def test_prompt_lists_beliefs_only_when_asked() -> None:
+def test_tempting_beliefs_reach_the_prompt_only_when_passed() -> None:
     beliefs = bakeoff.tempting_beliefs(CONTEXT)
 
     assert "last seen" not in bakeoff.build_prompt(CONTEXT, None)
@@ -103,45 +84,17 @@ def test_prompt_lists_beliefs_only_when_asked() -> None:
     )
 
 
-def seen(room: str = "b_school_classroom", room_confidence: float = 0.9, **item: object):
-    entry = {"item": "keys", "landmark": "b_school_classroom > table", "confidence": 0.8}
-    return bakeoff.Seen.model_validate(
+def test_stored_items_uses_the_shared_drop_rules() -> None:
+    perception = bakeoff.Perception.model_validate(
         {
-            "room": room,
-            "room_confidence": room_confidence,
+            "room": "b_school_classroom",
+            "room_confidence": 0.9,
             "landmarks_in_view": [],
-            "items": [{**entry, **item}],
-        }
-    )
-
-
-@pytest.mark.parametrize(
-    ("perception", "kept"),
-    [
-        (seen(), True),
-        (seen(room="bathroom"), False),  # no-capture room
-        (seen(room="unknown"), False),
-        (seen(room_confidence=0.5), False),  # below the room cut
-        (seen(confidence=0.4), False),  # below the item cut
-        (seen(landmark="none"), False),  # somewhere else, not in hand
-        (seen(landmark="none", in_hand=True), True),
-    ],
-)
-def test_stored_items_applies_the_worker_drop_rules(perception: bakeoff.Seen, kept: bool) -> None:
-    assert bool(bakeoff.stored_items(perception, CONTEXT)) is kept
-
-
-def test_stored_items_keeps_the_most_confident_duplicate() -> None:
-    perception = seen()
-    twice = perception.model_copy(
-        update={
             "items": [
-                *perception.items,
-                bakeoff.SeenItem(
-                    item="keys", landmark="b_school_classroom > floor", confidence=0.9
-                ),
-            ]
+                {"item": "keys", "landmark": "b_school_classroom > table", "confidence": 0.8},
+                {"item": "watch", "landmark": "none", "confidence": 0.9},
+            ],
         }
     )
 
-    assert bakeoff.stored_items(twice, CONTEXT)["keys"].landmark == "b_school_classroom > floor"
+    assert list(bakeoff.stored_items(perception, CONTEXT)) == ["keys"]

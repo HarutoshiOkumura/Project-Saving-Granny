@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import AfterValidator, HttpUrl, SecretStr, TypeAdapter
+from pydantic import AfterValidator, Field, HttpUrl, SecretStr, TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
@@ -25,6 +25,8 @@ def _check_url(value: str) -> str:
 
 
 Url = Annotated[str, AfterValidator(_check_url)]
+Fraction = Annotated[float, Field(ge=0.0, le=1.0)]
+Seconds = Annotated[float, Field(gt=0.0)]
 
 
 class Settings(BaseSettings):
@@ -57,6 +59,13 @@ class Settings(BaseSettings):
     roboflow_api_key: SecretStr | None = None
     roboflow_api_url: Url = "https://serverless.roboflow.com"
     roboflow_model_id: str | None = None
+
+    # Perception thresholds and timeouts (step 05, D11, `.claude/rules/perception.md`)
+    room_cut: Fraction = 0.6
+    item_cut: Fraction = 0.5
+    sam3_gate: Fraction = 0.5
+    perception_timeout_s: Seconds = 10.0
+    detector_timeout_s: Seconds = 5.0
 
     # Vapi (step 03)
     vapi_server_secret: SecretStr | None = None

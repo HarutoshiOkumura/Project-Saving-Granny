@@ -74,6 +74,7 @@ These load when you work on perception, the ingest worker, the bake-off or the r
 ## Thresholds
 
 Defaults are guesses (D11). Tune them on the fixture frames and record the tuned values in `docs/STATUS.md` and D11.
+They are settings (`ROOM_CUT`, `ITEM_CUT`, `SAM3_GATE`, ...); step 05 measured them live and kept every default (D11 has the margins).
 
 | Setting | Default |
 |---|---|
@@ -82,7 +83,7 @@ Defaults are guesses (D11). Tune them on the fixture frames and record the tuned
 | Room cut (`room_confidence`) | 0.6 |
 | Item cut (item `confidence`) | 0.5 |
 | Roboflow Instant confidence | 0.85 to 0.99 |
-| SAM 3 gate confidence | 0.5 (step 04: opened 12/12 item frames, 1/5 empty) |
+| SAM 3 gate confidence | 0.5 (step 04: opened 12/12 item frames, 1/5 empty; step 05: item frames 0.57 and up, empty up to 0.55, so do not raise it) |
 | RF-DETR confidence | tune on fixtures, if one is trained |
 | Frame interval | 2 s (D10) |
 
