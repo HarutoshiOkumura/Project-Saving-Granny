@@ -4,9 +4,10 @@ The memory functions go through `rpc(name, params)`. The write path also reads t
 and ids from the tables, inserts observations (there is no function for that) and uploads crops
 to the private `crops` bucket. Every call has a hard `asyncio.timeout`.
 
-On the read path, the one table read is `list_items`: item names and aliases for the Typesense
-copy (step 09) and the FaceTime agent's call-start snapshot. `find_item` is the read that logs no
-question.
+On the read path, the table reads are `list_items` (item names and aliases for the Typesense copy,
+step 09, and the FaceTime agent's call-start snapshot) and `look_evidence` (habits and glimpses for
+"where to look" in the snapshot, D33). `find_item` is the read that logs no question.
+`sign_photos` turns crop paths into links that work for an hour.
 """
 
 import asyncio
@@ -20,11 +21,22 @@ from postgrest.exceptions import APIError
 from supabase import AsyncClient, AsyncClientOptions, acreate_client
 
 from app.config import get_settings
-from app.memory.schema import Channel, FindResult, HomeMap, Item, PerceptionContext
+from app.memory.schema import (
+    Channel,
+    FindResult,
+    Glimpse,
+    HomeMap,
+    Item,
+    LookEvidence,
+    PerceptionContext,
+    PlaceName,
+    UsualPlace,
+)
 
 READ_TIMEOUT_S = 2.0  # the read path: a caller is waiting
 WRITE_TIMEOUT_S = 10.0  # the write path: a background task, may fail softly
 CROPS_BUCKET = "crops"
+PHOTO_LINK_S = 3600  # signed crop links last an hour (memory-db rules)
 
 _client: AsyncClient | None = None
 _client_lock = asyncio.Lock()
@@ -102,12 +114,77 @@ async def list_items() -> list[Item]:
         client = await _get_client()
         response = await (
             client.table("items")
-            .select("id,name,aliases,category,color,description")
+            .select("id,name,aliases,category,color,description,home_landmark_id")
             .eq("home_id", _home())
             .order("name")
             .execute()
         )
     return [Item.model_validate(row) for row in response.data]
+
+
+async def look_evidence(item_ids: list[UUID], glimpses_since: datetime) -> LookEvidence:
+    """Everything "where to look" weighs besides `find_item`: the home's place names, each item's
+    settled stays per place (`item_usual_places`) and its one-frame glimpses on a landmark since
+    `glimpses_since`, newest first. Three reads at once, read-only. Raises like `ask_item`."""
+    home = _home()
+    async with asyncio.timeout(READ_TIMEOUT_S):
+        client = await _get_client()
+        places_q = (
+            client.table("places")
+            .select("landmark_id,address,room_spoken,landmark_spoken")
+            .eq("home_id", home)
+            .execute()
+        )
+        glimpses_q = (
+            client.table("sightings")
+            .select("item_id,landmark_id,last_seen_at")
+            .eq("home_id", home)
+            .eq("status", "tentative")
+            .eq("in_hand", "false")
+            .not_.is_("item_id", "null")
+            .not_.is_("landmark_id", "null")
+            .gte("last_seen_at", _utc(glimpses_since))
+            .order("last_seen_at", desc=True)
+            .limit(500)
+            .execute()
+        )
+        if item_ids:  # the view has no home_id: it is limited to this home's items
+            usual_q = (
+                client.table("item_usual_places")
+                .select("item_id,landmark_id,episodes,last_seen_at")
+                .in_("item_id", [str(i) for i in item_ids])
+                .execute()
+            )
+            places, glimpses, usual = await asyncio.gather(places_q, glimpses_q, usual_q)
+            usual_rows = usual.data
+        else:
+            places, glimpses = await asyncio.gather(places_q, glimpses_q)
+            usual_rows = []
+    return LookEvidence(
+        places=[PlaceName.model_validate(row) for row in places.data],
+        usual=[UsualPlace.model_validate(row) for row in usual_rows],
+        glimpses=[Glimpse.model_validate(row) for row in glimpses.data],
+    )
+
+
+async def sign_photos(paths: list[str]) -> dict[str, str]:
+    """Storage paths (`crops/<home>/<item>/<time>.jpg`, as in `crop_url` and `find_item`'s
+    `photo`) to links that work for PHOTO_LINK_S, one request per bucket. A path whose file is
+    missing is left out. Raises like `ask_item`."""
+    by_bucket: dict[str, list[str]] = {}
+    for path in dict.fromkeys(paths):
+        bucket, _, key = path.partition("/")
+        if bucket and key:
+            by_bucket.setdefault(bucket, []).append(key)
+    links: dict[str, str] = {}
+    async with asyncio.timeout(READ_TIMEOUT_S):
+        client = await _get_client()
+        for bucket, keys in by_bucket.items():
+            signed = await client.storage.from_(bucket).create_signed_urls(keys, PHOTO_LINK_S)
+            for entry in signed:
+                if entry["signedURL"] and not entry["error"]:
+                    links[f"{bucket}/{entry['path']}"] = entry["signedURL"]
+    return links
 
 
 async def perception_context(room_id: UUID | None = None) -> PerceptionContext:

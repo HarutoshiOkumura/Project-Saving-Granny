@@ -2,7 +2,10 @@
 
 Claude Code updates this at the end of every step. Humans edit it freely. Keep it under one screen.
 
-Last updated: Sun 15 Nov 01:05 EST. **Start here: D33 in `docs/DECISIONS.md`** (the judge's asks, the plan to the 05:00 freeze, and why the FaceTime agent cannot see the camera yet). Next: Rank 3 backend ("where to look" and the photo link in `/snapshot`).
+Last updated: Sun 15 Nov 01:30 EST. **Start here: D33 in `docs/DECISIONS.md`** (the judge's asks, the plan to the 05:00 freeze, and why the FaceTime agent cannot see the camera yet).
+**Rank 3 backend done** (below). Next: `POST /locate`.
+
+**D33 Rank 3 backend (done 15 Nov 01:30):** `/snapshot` entries gain `where_to_look` (places ranked with whole percentages, `why`, `band`, `ruled_out`) and `photo_url` (signed crop link, 1 h). Additive: every older field is unchanged. Contract in `docs/CHERT.md` "Where to look and the last-seen photo", weights in `app/look.py` (pure; last seen, newer one-frame glimpses, `item_usual_places` habits, the family's home place, a constant "somewhere else"). One extra read per snapshot (`db.look_evidence`: `places`, `item_usual_places`, tentative sightings in 24 h, run alongside the `find_item` calls) and one Storage request (`db.sign_photos`). 29 new tests (336 total). Live on Supabase: all 5 items ranked (each `high`, last seen on its landmark 89 to 91%); with the token all 5 links open as JPEGs; without it, no links. Warm `/snapshot` 190 ms without the token, 270 to 340 ms with it; first call 1.2 s. **Tom:** set `APP_TOKEN` in `agent/.env.local` to the backend's value for photos (`saveit.mjs` already sends it); the prompt and card do not read `where_to_look` yet.
 
 ## Steps
 
@@ -88,7 +91,7 @@ Every Gemini run had the room right on every frame, no stray items, and every em
 
 ## Open questions for the humans
 
-- **Plan to the freeze is D33** (15 Nov 01:00): Rank 3 backend ("where to look" + photo link in `/snapshot`), then `POST /locate`, then the dashboard view (Haru with Claude Code); the caller-video check, the photo card, then the arrow (Tom); from 02:30 stage, rehearse, film, Devpost. D26 C (Rank 2) passed its 01:00 deadline: only if everything else is done.
+- **Plan to the freeze is D33** (15 Nov 01:00): Rank 3 backend ("where to look" + photo link in `/snapshot`, done 01:30), then `POST /locate`, then the dashboard view (Haru with Claude Code); the caller-video check, the photo card, then the arrow (Tom); from 02:30 stage, rehearse, film, Devpost. D26 C (Rank 2) passed its 01:00 deadline: only if everything else is done.
 
 - **Frames to add later (deferred 14 Nov to save time):** about 6 medium shots (SAM 3's weak spot), 2 with an item in a hand (`in_hand` is untested), 1 of the bathroom corner (no-capture rule), 1 with an item on a different table. Name them like the others; only new frames cost calls.
 - **One chair:** the frames use two chairs (the gray stool and a blue-cushioned one). D1 says stage one.
@@ -125,6 +128,8 @@ Every Gemini run had the room right on every frame, no stray items, and every em
 
 ## Things that differ from the docs or from CLAUDE.md
 
+- D33 did not say who may see photo links. `/snapshot` itself stays open (the agent may run without a token), but `photo_url` comes only with `Authorization: Bearer <APP_TOKEN>`, since a signed link opens a private crop to anyone who has it. The ranking does not use 0003's `rank_item` (not applied); it reads `item_usual_places` as D33 says and borrows `rank_item`'s band cut-offs, so the two can be compared once 01b lands.
+- Crops seen through the new photo links (15 Nov): the glasses crop cuts off the right lens (box from step 06), and the keys crop is about 90 x 60 px (the false keyring sighting), which will look blurry on the card. The context-crop idea under open questions would fix both.
 - The `google-genai` SDK retries 408, 409, 429 and 5xx up to 4 times inside each call by default, and its `timeout` let one call run 94 s. The bake-off turns that off (`HttpRetryOptions(attempts=1)`) and wraps calls in `asyncio.timeout`; the rules file now says the same for step 05. On the free tier, 4 calls in flight drew a 429 storm; 1 in flight drew none.
 - `gemini-3.8-flash` timed out again on its step 04 retry (60 s). Not used.
 - Frame names: `empty_<landmark>_<nn>.jpg` added beside `empty_<room>_<nn>.jpg`, so the bake-off can check that the model lists an empty landmark in view (absence needs it). Step 04 command and `docs/ROBOFLOW.md` updated. The 17 frames were renamed to the pattern (`close_blue_waterbottle_chair.JPG` became `close_water-bottle_chair_01.jpg`; `medium_empty_*` became `empty_*`).

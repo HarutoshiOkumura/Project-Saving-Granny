@@ -7,7 +7,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Quer
 from pydantic import AwareDatetime, BaseModel
 
 from app.ask import Answer, Known, ask, snapshot
-from app.auth import require_app_token
+from app.auth import has_app_token, require_app_token
 from app.memory.schema import Channel
 from app.worker.ingest import ingest
 
@@ -36,9 +36,12 @@ async def find(
 
 
 @app.get("/snapshot")
-async def snapshot_route() -> list[Known]:
-    """Every item's current answer, for the FaceTime agent at call start. Logs no questions."""
-    return await snapshot()
+async def snapshot_route(
+    with_photos: Annotated[bool, Depends(has_app_token)],
+) -> list[Known]:
+    """Every item's current answer and where to look, for the FaceTime agent at call start. Logs
+    no questions. Photo links only for a request with the APP_TOKEN: they open private crops."""
+    return await snapshot(with_photos=with_photos)
 
 
 @app.post("/frames", status_code=202, dependencies=[Depends(require_app_token)])

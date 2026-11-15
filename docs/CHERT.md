@@ -54,6 +54,42 @@ Measured with spoken questions through LiveKit (first sound after the question e
 | Snapshot + Gemini thinking off (default now) | 1.8 s | 1.9 s / 2.4 s | 2.1 s / 2.3 s |
 Without the lookup tool (later the same evening): glasses 2.6 s, bag 2.5 s (said once), pencils (unknown) 1.9 s, watch 3.8 s. Gemini's own time varies run to run, so the median across thinking-off runs is about 2.2 s. Gemini alone, sent the audio directly with no tools, took 1.5 to 3 s. Answers also got shorter: 3.5 to 4.4 s of speech, down from 6.8 to 7.6 s.
 
+### Where to look and the last-seen photo (D33, 15 Nov)
+
+Each `/snapshot` entry has two new fields.
+Every older field is unchanged, so an agent that ignores them keeps working.
+
+- `where_to_look`: places ranked with chances, or `null` for an unknown item or when the read failed.
+
+  ```json
+  {"band": "high",
+   "places": [{"landmark_id": "2bfe…", "room": "the classroom", "landmark": "the table",
+               "address": "b_school_classroom > table", "pct": 67,
+               "why": ["last_seen", "home"], "minutes_ago": 30},
+              {"landmark_id": "3882…", "room": "the classroom", "landmark": "the chair",
+               "address": "b_school_classroom > chair", "pct": 25,
+               "why": ["glimpse"], "minutes_ago": 1}],
+   "elsewhere_pct": 8,
+   "ruled_out": null}
+  ```
+
+  - `places` is most likely first, with at most 4 places; the `pct` values plus `elsewhere_pct` add up to 100.
+    `room` and `landmark` are the spoken words, as in `result`.
+  - `why` says what put a place on the list: `last_seen` (the current answer), `glimpse` (one camera frame newer than the answer: a hint, never an answer), `usual` (two or more settled stays there) and `home` (where the family says it belongs).
+  - `band`: `high` when the top place has at least 60% and leads the second by 25 points, `split` when the top two have 60% together, `low` otherwise.
+    Offer the list when the band is not `high`, or when the caller says it is not there.
+    Say the places in order, most likely first, and never the percentages (`.claude/rules/voice.md`); the percentages are for the card.
+  - `ruled_out` is the place just seen empty (`not_there_anymore`); it is never in `places` unless a newer glimpse put it back.
+  - The weights are in `app/look.py`.
+    The chances are a ranking aid, not measured probabilities.
+- `photo_url`: a signed link to the last-seen crop, valid for 1 hour, or `null`.
+  It is sent only when the request carries `Authorization: Bearer <APP_TOKEN>`, because it opens a private crop.
+  `saveit.mjs` already sends that header when `APP_TOKEN` is set, so set `APP_TOKEN` in `agent/.env.local` to the backend's value.
+  `result.photo` stays the storage path.
+
+Measured against Supabase on 15 Nov: `/snapshot` takes about 190 ms warm without the token and 270 to 340 ms with it (signing is one Storage request); the first call after a restart took 1.2 s.
+If the habit read or the signing fails, the sentences still come back and only these fields are `null`.
+
 ### Test without FaceTime (uses no Chert minutes)
 Chert counts FaceTime minutes per call (trial: 50, at most 5 a call; `npx @trychert/facetime@0.1.0-beta.20 doctor` shows what is left). Holding the line costs nothing, and the agent opens no Gemini session until someone joins. For everyday testing, skip FaceTime:
 1. Backend (repo root): `uv run uvicorn app.main:app --port 8000`

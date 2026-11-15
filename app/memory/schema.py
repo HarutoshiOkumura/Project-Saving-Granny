@@ -21,6 +21,7 @@ class Item(BaseModel):
     category: str | None = None  # the detector's class: items of one category are look-alikes
     color: str | None = None
     description: str | None = None
+    home_landmark_id: UUID | None = None  # where the family says it belongs
 
 
 class Place(BaseModel):
@@ -73,6 +74,48 @@ class FindResult(BaseModel):
             except (ZoneInfoNotFoundError, ValueError) as exc:
                 raise ValueError(f"unknown timezone {value!r}") from exc
         return value
+
+
+class PlaceName(BaseModel):
+    """One row of the `places` view: a landmark's address and the words the voice says for it."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    landmark_id: UUID
+    address: str
+    room_spoken: str
+    landmark_spoken: str
+
+
+class UsualPlace(BaseModel):
+    """One row of the `item_usual_places` view: settled, not-in-hand stays of an item at a place."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    item_id: UUID
+    landmark_id: UUID
+    episodes: int
+    last_seen_at: AwareDatetime
+
+
+class Glimpse(BaseModel):
+    """A one-frame (`tentative`) stay of an item on a landmark: a hint, never an answer."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    item_id: UUID
+    landmark_id: UUID
+    last_seen_at: AwareDatetime
+
+
+class LookEvidence(BaseModel):
+    """What "where to look" weighs besides `find_item`'s answer, read once for the whole home."""
+
+    model_config = ConfigDict(frozen=True)
+
+    places: list[PlaceName] = []
+    usual: list[UsualPlace] = []
+    glimpses: list[Glimpse] = []
 
 
 def _none_to_list(value: object) -> object:
