@@ -51,7 +51,7 @@ The contract table is in `CLAUDE.md`.
 
 Until the camera pipeline runs (steps 05 to 07), the read path is built against dummy data.
 
-- Load it with `supabase/dummy_data.sql`. It replaces the log (queries, sightings, observations) for the demo home with one item in each found state: glasses `seen`, keys `carried`, bag `not_there_anymore`. It refuses to run once an observation from a real device exists, so it cannot wipe camera data.
+- Load it with `supabase/dummy_data.sql`. It replaces the log (queries, sightings, observations) for the demo home with one item in each found state: glasses `seen` (on the chair), keys `carried`, bag `not_there_anymore`, water bottle `seen` but not confident; the watch stays `never_seen`. It refuses to run once an observation from a real device exists, so it cannot wipe camera data.
 - To write more, go through `log_sighting` and `mark_absent` only. Never insert into `sightings` directly: that skips the two-frame rule and can leave two active rows for one item.
 - A stay answers only after two `log_sighting` calls at the same place with different `p_seen_at`, within 10 minutes. One call, or the same time twice, stays `tentative`, and `find_item` says `never_seen`.
 - `mark_absent` looks must be at least 30 seconds apart; 3 counted looks give `not_there_anymore`.

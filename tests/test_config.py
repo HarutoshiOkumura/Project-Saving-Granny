@@ -28,20 +28,20 @@ def test_keys_are_secret() -> None:
 def test_later_services_are_optional_with_defaults() -> None:
     settings = get_settings()
 
-    assert settings.anthropic_api_key is None
+    assert settings.google_api_key is None
     assert settings.public_base_url is None
-    assert settings.perception_model == "claude-haiku-5-5"
+    assert settings.perception_model == "gemini-3.6-flash"
     assert settings.roboflow_api_url == "https://serverless.roboflow.com"
 
 
 def test_empty_value_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setenv("GOOGLE_API_KEY", "")
     monkeypatch.setenv("PERCEPTION_MODEL", "")
 
     settings = Settings()
 
-    assert settings.anthropic_api_key is None
-    assert settings.perception_model == "claude-haiku-5-5"
+    assert settings.google_api_key is None
+    assert settings.perception_model == "gemini-3.6-flash"
 
 
 def test_url_loses_trailing_slash(monkeypatch: pytest.MonkeyPatch) -> None:

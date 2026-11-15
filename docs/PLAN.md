@@ -67,7 +67,7 @@ Three tracks can start in the first hour, because they only share the schema.
 
 Cut from the top. Never cut below the line.
 
-1. 3D scan view and AR arrow
+1. 3D scan view, room check from the scan (D25) and AR arrow
 2. Coder egress allowlist for the worker (keep building in Coder; that alone earns the credit)
 3. Step 09, Typesense
 4. Live pointing on FaceTime (keep the last-seen photo)
@@ -80,10 +80,10 @@ Cut from the top. Never cut below the line.
 
 ## Definition of demo-ready
 
-1. Someone puts glasses on the kitchen counter in view of the lanyard phone and walks to another room.
+1. Someone puts glasses on the chair (not their usual table) in view of the lanyard phone and walks away.
 2. Within 10 seconds the dashboard shows the sighting with a crop.
-3. They call the number and ask "where are my glasses?". The answer names the kitchen counter and a relative time.
-4. Someone moves the glasses off camera; the camera sees the empty counter three times; the next call says they are no longer there and offers the usual place.
+3. They call the number and ask "where are my glasses?". The answer names the chair and a relative time.
+4. Someone moves the glasses off camera; the camera sees the empty chair three times; the next call says they are no longer there and offers the usual place, the table.
 5. The camera enters the no-capture room and nothing is stored.
 6. All of this is also recorded as a fallback take.
 7. It all runs on the D5 setup, and every ⚠ UNVERIFIED check in `docs/DECISIONS.md` D5 has passed or has its fallback in place.

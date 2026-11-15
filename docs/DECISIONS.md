@@ -6,11 +6,16 @@ Status key: OPEN (using default), DECIDED (write the choice and who chose).
 
 ## Settle in the first hour
 
-**D1. Where is the "home" for the demo?** OPEN
-A hackathon hall has no rooms, and every corner looks alike. Options: (a) film in a teammate's apartment or dorm and judge from the video plus a live call; (b) stage two or three tables as "rooms" with very different props (a lamp and a pillow; a kettle and a toaster; coat hooks). Default: both. Film the real walk for the video; stage two tables for live judging. The names in `supabase/seed.sql` (seeded on Supabase in step 01) must match whatever you stage.
+**D1. Where is the "home" for the demo?** DECIDED (the team, 14 Nov)
+The B School classroom at the hackathon, as one room named `b_school_classroom` (spoken "the classroom"), plus a `bathroom` corner where nothing is stored, for the privacy demo.
+A classroom has many tables and chairs, so stage one table and one chair and keep the others out of frame; otherwise "on the table" does not say which one.
+The names live in `supabase/seed.sql` (seeded on Supabase on 14 Nov) and must match what is staged.
 
-**D2. Which items and landmarks, exactly?** DECIDED (the team, 14 Nov, step 01)
-Rooms: bedroom, kitchen, hallway, bathroom (no capture). Landmarks: bedroom nightstand, dresser, desk; kitchen counter, table; hallway key hook, shoe shelf. Items: glasses, keys, and `bag` (the FRANZI Milano green bag; aliases "green bag", "handbag", "purse"). The bag has no usual place yet. Seeded from `supabase/seed.sql`. Fewer, more distinct items beat a long list. Every name here becomes an allowed answer for the vision model.
+**D2. Which items and landmarks, exactly?** DECIDED (the team, 14 Nov; replaces the step 01 home)
+Landmarks in the classroom: `table`, `chair`, `floor` (the carpet).
+Items: `glasses` and `keys` (both usually on the table), `bag` (the green FRANZI Milano handbag with gold lettering), `watch` (silver) and `water bottle` (dark blue); the last three have no usual place.
+The glasses' usual place is the table so the demo can put them elsewhere and the "not there anymore" answer can offer the table.
+Seeded from `supabase/seed.sql`. Every name here becomes an allowed answer for the vision model.
 
 **D3. Which detector?** OPEN, decided by the step 04 bake-off
 Candidates: YOLO-World zero-shot, SAM 3 text prompts, a Roboflow Instant or RF-DETR model trained on the demo items, or the language model alone. Pass rule is CP2 in `PLAN.md`. Default if nobody runs the bake-off: language model alone for placement, trained Roboflow model for boxes and crops.
@@ -62,7 +67,7 @@ Take a screenshot of the running workspace for Devpost.
 How to say it (pitch, video, Devpost):
 
 - Say "built with HIPAA-style safeguards": frames are handled only inside an isolated Coder workspace, full frames are never stored, only a tight crop of each item is kept in a private bucket with expiring links, and no-capture rooms store nothing.
-- Frames are still sent to Anthropic (Claude) and Roboflow for analysis.
+- Frames are still sent to Google (Gemini) and Roboflow for analysis.
   Coder isolates our code, not theirs, so never claim the frames stay in the container.
 - Never say "HIPAA compliant" or "protected under HIPAA".
   HIPAA covers healthcare providers, insurers and their contractors, and running in a container does not make us one.
@@ -93,6 +98,29 @@ Defaults: blur below 25; duplicate at SSIM 0.95 or more; detector confidence per
 **D12. No-capture rooms.** OPEN
 The database refuses to store anything for them, but the frame has already been sent to a model API by the time the room is known. Options: (a) accept and disclose; (b) a Pause button on the capture page; (c) run a local room classifier first and drop the frame before any network call. Default: (a) plus (b).
 
+**D24. Which vision language model reads the frames?** DECIDED (the team, 14 Nov: Google Gemini instead of Claude; model choice and settings by Claude Code)
+
+- **Model:** `gemini-3.6-flash` (stable), set by `PERCEPTION_MODEL`.
+  The step 04 bake-off also tries `gemini-3.5-flash-lite` (stable, faster, weaker) and `gemini-4-hydrogen` (the step-up); keep whichever passes CP2 with acceptable latency.
+  `gemini-3.8-flash` did not answer on our key on 14 Nov (timeouts at 20, 45 and 60 s, even for plain text); retry it once in step 04.
+- **Is it good enough? Probably for the reasoning half; not proven for tight boxes on small items.** Research on 14 Nov:
+  - Roboflow's Vision Evals (12 Nov 2026, 32 samples, no breakdown by object size), object identification: 3.6 Flash 99.0%, 3.8 Flash 97.9%, 3.5 Flash-Lite 84.4%, Claude Haiku 5.5 83.3%. https://playground.roboflow.com/evals/identification
+  - Same evals, detection mAP@50: Hydrogen 81.0, 3.8 Flash 68.1, 3.6 Flash 57.1. SAM 3 and YOLO-World were not scored. https://playground.roboflow.com/evals/object-detection
+  - Same evals, latency per image at low effort: Flash-Lite about 1.2 s; 3.6 Flash, 3.8 Flash and Hydrogen about 7.4 s.
+  - Known weakness, from older Gemini models: reporting a named object that is not there (RF100-VL https://arxiv.org/abs/2505.20612; SAM 3 paper https://arxiv.org/abs/2511.16719). Spatial relations benefit from some thinking (https://arxiv.org/abs/2509.02175, 2025).
+  - No public benchmark tests these models on small household items at 0.5 to 3 m or on on/in/under. The step 04 bake-off on our own photos is the real test.
+  - So: keep a detector for crops unless Gemini's own boxes pass CP2 in the bake-off, start at thinking `low`, and process frames concurrently.
+- **API:** the Interactions API from the `google-genai` package (`client.aio.interactions.create`), with a JSON schema in `response_format`.
+  Google calls `generateContent` legacy.
+- **Checked live on 14 Nov (text only, no images):** `gemini-3.6-flash` and `gemini-3.5-flash-lite` both returned `status` `completed` and JSON inside the enum, in 0.7 to 1.5 s.
+- **Settings to start from:** `thinking_level` `low`, image resolution at the default (`high`, 1,120 tokens), timeout 15 s, frames processed concurrently. Details in `.claude/rules/perception.md`.
+- **Privacy:**
+  - On the free tier Google uses API inputs, images included, "for product development and machine learning", and "human reviewers may read, annotate, and process your API input and output". On the paid tier Google does not use prompts or responses to improve its products. Source: https://aistudio.google.com/docs/terms
+  - The Interactions API stores every request by default (1 day free, 55 days paid). Every call passes `store=False`. Source: https://aistudio.google.com/docs/interactions
+  - On billing-enabled projects, AI Studio logs Interactions requests by default and keeps them up to 55 days, private to the project. Turn it off under Logs and Datasets in AI Studio. Source: https://aistudio.google.com/docs/logs-policy
+  - So: staged test photos may use the free-tier key; real camera frames need a billing-enabled project with logging off (hard rule in `CLAUDE.md`).
+- **Rate limits:** Google shows the free-tier limits per model only in AI Studio. The capture page sends up to 30 frames a minute; check the limit there before step 07.
+
 ## Settle before step 03
 
 **D13. How does a caller map to a home?** OPEN
@@ -121,3 +149,25 @@ Default: the agent asks "Would you like me to stay on the line while you look?",
 **D22. Measuring it.** Default metric for the write-up: on the fixture set, the share of put-down events where `find_item` then returns the right landmark. Report the number, however small the set.
 
 **D23. Speech stack for the FaceTime agent.** Default: whatever the Chert starter ships with. Adding another speech provider means another key and another failure point.
+
+## After the core demo passes
+
+**D25. A room scan: 3D view (A) and room recognition from the scan (C).** OPEN (the team, 14 Nov: maybe, as an afterthought)
+The judges liked the point cloud idea on 14 Nov.
+Start only after CP3 and CP4 pass (cut item 1 in `PLAN.md`, and the out-of-scope list in `CLAUDE.md`); until then, finish the original plan.
+Optional now: record the scan video while the staged table and chair are set up; it takes ten minutes and touches no code.
+
+- **Making the scan:** Scaniverse (free, processes on the phone, exports PLY), or ffmpeg plus COLMAP or GLOMAP on the Mac from a video (nerfstudio's `ns-process-data video` wraps both).
+  The base iPhone 17 has no LiDAR; a Pro model gives a cleaner scan at real scale.
+- **A, 3D view (about 2 to 3 hours):** click the table, chair and floor in the cloud and store their positions in `landmarks.x/y/z` (the columns exist; no migration).
+  The dashboard draws the room (three.js `PLYLoader` from a CDN, no build step) with a pin on the landmark `find_item` returns, and the timeline moves the pin.
+  No change to perception, the database functions or voice.
+- **C, room from the nearest scan frame (about 2 to 4 hours on top of A):** embed the scan's frames with CLIP ViT-L/14 running locally (768 numbers, fits `vector(768)`, D9) into `room_refs`, and look up each live frame with `match_room` before any network call.
+  Fail closed: send a frame to Gemini only if it closely matches a frame of a capture-allowed room, otherwise drop it. This needs no bathroom imagery, and it is D12 option (c): the no-capture rule then stops transmission, not only storage.
+  The embedding must run locally; Roboflow-hosted CLIP would send the frame out.
+  This changes the write path: tune the match cut on fixture frames, and add an `ingest` test for a dropped frame.
+- **Not planned: full camera localization (B).** Matching each frame to the scan to get the camera's position (for example hloc) would tell identical tables apart and check `landmarks_in_view` geometrically, but iOS Safari gives no camera position, so it costs seconds per frame on the server and fails on blurry frames.
+  Pitch it as the next step; a native ARKit app would provide the position for free.
+- **Privacy:** a scan of a real home is as sensitive as the frames.
+  Leave the bathroom out, keep the file in a private bucket and sign it at read time like the crops.
+  Scaniverse keeps the scan on the phone; Polycam's photo mode uploads it.

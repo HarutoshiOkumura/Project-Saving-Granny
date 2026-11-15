@@ -44,8 +44,8 @@ Expected: `rls_enabled_no_policy` (INFO, deliberate) and `extension_in_public` f
 
 ## 4. Seed the demo home
 
-1. `supabase/seed.sql` holds the names in use (D1, D2 defaults plus a bedroom desk and the green bag). To change them, edit it to match what you staged; `supabase/seed.example.sql` is the original template.
-2. Run it on an empty home. The home id is fixed in the file: `11111111-1111-1111-1111-111111111111`. Put it in `.env` as `HOME_ID`.
+1. `supabase/seed.sql` holds the names in use: the B School classroom (D1, D2). To change them, edit it to match what you staged; `supabase/seed.example.sql` is the original template.
+2. Run it (SQL editor, `psql`, or the MCP `execute_sql`). It keeps the home row, replaces the home's rooms, landmarks and items, and refuses while any sighting or observation exists. The home id is fixed in the file: `11111111-1111-1111-1111-111111111111`. Put it in `.env` as `HOME_ID`.
 3. Check: `select address, landmark_spoken from places;`
 
 ## 5. Smoke test by hand
@@ -54,18 +54,18 @@ Expected: `rls_enabled_no_policy` (INFO, deliberate) and `extension_in_public` f
 -- two frames two seconds apart: tentative, then active. The landmark decides the room.
 select log_sighting('11111111-1111-1111-1111-111111111111',
   (select id from items where name = 'glasses'), 'glasses',
-  null, (select landmark_id from places where landmark = 'counter'),
+  null, (select landmark_id from places where landmark = 'chair'),
   'on', false, now() - interval '40 minutes', 0.9, 0.9, 1.0);
 select log_sighting('11111111-1111-1111-1111-111111111111',
   (select id from items where name = 'glasses'), 'glasses',
-  null, (select landmark_id from places where landmark = 'counter'),
+  null, (select landmark_id from places where landmark = 'chair'),
   'on', false, now() - interval '40 minutes' + interval '2 seconds', 0.9, 0.9, 1.0);
 
 select jsonb_pretty(find_item('11111111-1111-1111-1111-111111111111', 'my specs'));
 select jsonb_pretty(ask_item('11111111-1111-1111-1111-111111111111', 'my specs', 'web'));   -- logs a queries row
 ```
 
-Expect `"state": "seen"`, `"landmark": "the kitchen counter"`, `"minutes_ago": 40`, and from `ask_item` a `query_id`.
+Expect `"state": "seen"`, `"landmark": "the chair"`, `"minutes_ago": 40`, and from `ask_item` a `query_id`.
 Clear the test rows afterwards with the rehearsal reset in section 8.
 
 Then check the API and the grants from a shell:
