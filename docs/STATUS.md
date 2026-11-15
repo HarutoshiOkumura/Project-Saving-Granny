@@ -4,6 +4,7 @@ Claude Code updates this at the end of every step. Humans edit it freely. Keep i
 
 Last updated: Sun 15 Nov 03:05 EST. **Start here: D33 in `docs/DECISIONS.md`** (the judge's asks, the plan to the 05:00 freeze, and why the FaceTime agent cannot see the camera yet).
 **Rank 3 backend done** (below). Next: `POST /locate`.
+**Tom (and Tom's agent): read `docs/HANDOFF_TOM.md` first**: merging the photo card with `photo_url`, `where_to_look` and `report_concern`.
 Research report on medical, safety and analytics uses of the data: `docs/research/save-it-data-and-safety-ideas.md` (notes in `docs/research/notes/`).
 **Insights MVP done (02:45):** three designs from `docs/INSIGHTS.md` built as MVPs, no sample data (Haru's call): wear time (`wear_minutes`, counted in the worker), change from usual (`GET /api/patterns`), and confirm-then-family (`report_concern` in the agent, `POST /concerns`, `GET /api/concerns`, `.../handle`). Migration `0005_insights` applied to Supabase at 02:38 (21 checks on scratch first; advisor unchanged). 49 new Python tests (385 total), 7 new agent tests (36). End to end on Supabase, test rows deleted. Not built: dashboard views (step 08), a family notification channel, the clinician page. **Tom:** `agent/agent.mjs` and `agent/prompt.mjs` changed (safety tool and rules; expect a small merge); please voice-test the near misses in docs/CHERT.md "Safety".
 
