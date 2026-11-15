@@ -35,6 +35,14 @@ Run (two terminals, from `agent/`; a third for the backend when `BACKEND_URL=htt
 
 Every call writes one JSON line per event to `agent/logs/calls.jsonl` (gitignored) and the console: caller and agent state changes, each tool call with milliseconds, and the model's `ttft_ms`. `LOG_TRANSCRIPTS=1` in `agent/.env.local` adds what was heard and said (testing only). `GEMINI_THINKING_BUDGET=0` is an optional latency experiment; Google's docs do not confirm it for this model (checked 14 Nov).
 
+### Test without FaceTime (uses no Chert minutes)
+Chert counts FaceTime minutes per call (trial: 50, at most 5 a call; `npx @trychert/facetime@0.1.0-beta.20 doctor` shows what is left). Holding the line costs nothing, and the agent opens no Gemini session until someone joins. For everyday testing, skip FaceTime:
+1. Backend (repo root): `uv run uvicorn app.main:app --port 8000`
+2. Agent (`agent/`): `npm start`
+3. Browser call (`agent/`): `npm run web-call`, open http://127.0.0.1:8090, press **Call Save It**, allow the microphone.
+
+`web-call.mjs` mints a token for a fresh room that dispatches `save-it` with `{"test_call": true}` (LiveKit "Dispatch via access token"; dispatch happens only when the room is created). The agent greets at once, since no FaceTime bridge will send `bridge_ready`. Same voice, tools and card; the page crops the card the way the iPhone did (a checkbox shows the full frame). The server listens on 127.0.0.1 and refuses other Host headers, so the token endpoint never leaves the laptop. `chert dev` can run at the same time: each call is its own room. Save FaceTime for final checks and the recording.
+
 `agent/.env.local` (gitignored, mode 600): `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `GOOGLE_API_KEY`, `AGENT_NAME=save-it`, `BACKEND_URL`, `APP_TOKEN`, `FAMILY_NAME`. No `OPENAI_API_KEY`: `chert doctor`'s OpenAI warning is expected.
 
 ### Agent ↔ backend contract

@@ -61,6 +61,15 @@ Use your tools. Never guess.
 - If a tool gives no answer, say: "I'm not sure. Let me check with ${FAMILY}."
 The caller can see a card on the video showing the place to look.`;
 
+/** Dispatch metadata from web-call.mjs (browser test calls). Chert's jobs carry {"chert_warm":true} or {"chert_call":...}. */
+const isTestCall = metadata => {
+  try {
+    return JSON.parse(metadata || '{}').test_call === true;
+  } catch {
+    return false;
+  }
+};
+
 // Said once, as soon as FaceTime is ready (greet.mjs). Chert ends a silent call 10 s after bridge_ready.
 const greeting = 'Say exactly this, warmly and slowly: "Hi, it\'s Save It. What can I help you find?"';
 
@@ -73,7 +82,8 @@ const agent = defineAgent({
 
     // Per-call read-side state lives here, not in the model.
     const saveIt = createSaveIt({ backendUrl: process.env.BACKEND_URL || '', appToken: process.env.APP_TOKEN || '', familyName: FAMILY, log: callLog });
-    callLog({ event: 'call_start', answers_from: saveIt.mode === 'backend' ? process.env.BACKEND_URL : 'fake home (BACKEND_URL is empty)', thinking_budget: THINKING_BUDGET || 'default', transcripts: TRANSCRIPTS });
+    const testCall = isTestCall(ctx.job?.metadata);
+    callLog({ event: 'call_start', test_call: testCall, answers_from: saveIt.mode === 'backend' ? process.env.BACKEND_URL : 'fake home (BACKEND_URL is empty)', thinking_budget: THINKING_BUDGET || 'default', transcripts: TRANSCRIPTS });
 
     // Video card: render on change, reuse frames. The marker pulses at 1 Hz while Save It speaks.
     const source = new VideoSource(WIDTH, HEIGHT);
@@ -189,6 +199,11 @@ const agent = defineAgent({
       outputOptions: { audioEnabled: true, transcriptionEnabled: false },
     });
     // Greet once when chert dev reports FaceTime is ready (bridge_ready in the room metadata). Never on join.
+    // Browser test calls have no FaceTime bridge, so no bridge_ready ever comes: greet once now instead.
+    if (testCall) {
+      callLog({ event: 'greet', test_call: true });
+      session.generateReply({ instructions: greeting });
+    }
     const stopGreeting = greetOnBridgeReady(ctx.room, () => {
       callLog({ event: 'greet' });
       return session.generateReply({ instructions: greeting });

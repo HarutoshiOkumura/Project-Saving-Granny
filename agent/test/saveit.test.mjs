@@ -8,6 +8,7 @@ import { cardLines, renderCard, HEIGHT, SAFE_X, WIDTH, wrap } from '../card.mjs'
 import { applyEnvFile } from '../env.mjs';
 import { fakeRankItem, resetFakeHome, resolveItem } from '../fake-home.mjs';
 import { ago, cleanPhrase, createSaveIt, placeOf, speakStub } from '../saveit.mjs';
+import { createTestCall, localHost } from '../web-call.mjs';
 
 const quiet = () => {};
 beforeEach(() => resetFakeHome());
@@ -163,6 +164,21 @@ test('env: .env.local wins over the terminal (VS Code injects the repo .env), an
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('web-call: a fresh room per call, its token dispatches the agent as a test call; local hosts only', async () => {
+  const keys = { url: 'wss://fake.livekit.cloud', apiKey: 'APIfake', apiSecret: 'fake-secret-long-enough-for-hmac-signing-0123456789' };
+  const a = await createTestCall({ ...keys, agentName: 'save-it', now: 1 });
+  const b = await createTestCall({ ...keys, agentName: 'save-it', now: 2 });
+  assert.notEqual(a.room, b.room, 'dispatch only happens when the room is created');
+  const claims = JSON.parse(Buffer.from(a.token.split('.')[1], 'base64url'));
+  assert.equal(claims.video.room, a.room);
+  assert.equal(claims.video.roomJoin, true);
+  assert.equal(claims.roomConfig.agents[0].agentName, 'save-it');
+  assert.deepEqual(JSON.parse(claims.roomConfig.agents[0].metadata), { test_call: true });
+  await assert.rejects(createTestCall({ url: '', apiKey: '', apiSecret: '' }), /LIVEKIT_URL/);
+  assert.ok(localHost('127.0.0.1:8090') && localHost('localhost:8090'));
+  assert.ok(!localHost('evil.example:8090') && !localHost('127.0.0.1.evil.example') && !localHost(undefined));
 });
 
 test('relative times only', () => {
