@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel
 
+from app import photos
 from app.look import WhereToLook, where_to_look
 from app.memory import db
 from app.memory.schema import Channel, FindResult, Item
@@ -127,7 +128,7 @@ async def _photo_links(results: list[FindResult | None]) -> dict[str, str]:
     if not paths:
         return {}
     try:
-        return await db.sign_photos(paths)
+        return await photos.links(paths)
     except Exception as exc:
         logger.warning("snapshot photos=error error=%s", _describe(exc))
         return {}

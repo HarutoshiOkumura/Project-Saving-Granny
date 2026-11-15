@@ -34,11 +34,15 @@ from app.memory.schema import (
     HomeInfo,
     HomeMap,
     Item,
+    LandmarkKind,
     LifeEvent,
     LookEvidence,
     PatternRows,
     PerceptionContext,
     PlaceName,
+    Room,
+    SetupPlace,
+    TimelineRow,
     Urgency,
     UsualPlace,
     WearHour,
@@ -56,6 +60,10 @@ _client_lock = asyncio.Lock()
 
 class InvalidPlace(Exception):
     """`log_sighting` raised 22023: room and landmark disagree, or one is not in this home."""
+
+
+class Duplicate(Exception):
+    """An insert hit a unique constraint (23505): that name is already used here."""
 
 
 async def _get_client() -> AsyncClient:
@@ -126,7 +134,7 @@ async def list_items() -> list[Item]:
         client = await _get_client()
         response = await (
             client.table("items")
-            .select("id,name,aliases,category,color,description,home_landmark_id")
+            .select("id,name,aliases,category,color,description,plural,home_landmark_id")
             .eq("home_id", _home())
             .order("name")
             .execute()
@@ -625,3 +633,218 @@ async def _all_pages(make: Callable[[], Any]) -> list[dict[str, Any]]:
         rows.extend(response.data)
         if len(response.data) < PAGE:
             return rows
+
+
+# ---------------------------------------------------------------------------------------------
+# Family dashboard (step 08): setup, history, "tell Save It", adding items, rooms and places.
+# Not on the voice path; reads and writes use WRITE_TIMEOUT_S.
+# ---------------------------------------------------------------------------------------------
+
+
+async def rooms() -> list[Room]:
+    async with asyncio.timeout(WRITE_TIMEOUT_S):
+        client = await _get_client()
+        response = await (
+            client.table("rooms")
+            .select("id,name,spoken_name,capture_allowed")
+            .eq("home_id", _home())
+            .order("name")
+            .execute()
+        )
+    return [Room.model_validate(row) for row in response.data]
+
+
+async def setup_places() -> list[SetupPlace]:
+    """Every landmark with its spoken words, no-capture rooms included (they are marked)."""
+    async with asyncio.timeout(WRITE_TIMEOUT_S):
+        client = await _get_client()
+        response = await (
+            client.table("places")
+            .select("landmark_id,room_id,room_spoken,landmark_spoken,kind,address,capture_allowed")
+            .eq("home_id", _home())
+            .order("address")
+            .execute()
+        )
+    return [
+        SetupPlace.model_validate(
+            {**row, "room": row["room_spoken"], "landmark": row["landmark_spoken"]}
+        )
+        for row in response.data
+    ]
+
+
+async def timeline(include_glimpses: bool, limit: int = 50) -> list[TimelineRow]:
+    """The newest stays, newest first. Without glimpses this is the `timeline` view (settled
+    stays only); with them, `sightings` itself, so one-frame (`tentative`) stays show too."""
+    home = _home()
+    async with asyncio.timeout(WRITE_TIMEOUT_S):
+        client = await _get_client()
+        rooms_q = client.table("rooms").select("id,name,spoken_name").eq("home_id", home).execute()
+        places_q = (
+            client.table("places")
+            .select("landmark_id,address,room_spoken,landmark_spoken")
+            .eq("home_id", home)
+            .execute()
+        )
+        items_q = client.table("items").select("id,name").eq("home_id", home).execute()
+        if include_glimpses:
+            rows_q = (
+                client.table("sightings")
+                .select(
+                    "sighting_id:id,item_id,event_type,status,in_hand,first_seen_at,"
+                    "last_seen_at,landmark_id,room_id,crop_url"
+                )
+                .eq("home_id", home)
+                .order("last_seen_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+        else:
+            rows_q = (
+                client.table("timeline")
+                .select(
+                    "sighting_id,item_id,event_type,status,in_hand,first_seen_at,last_seen_at,"
+                    "address,crop_url"
+                )
+                .eq("home_id", home)
+                .order("last_seen_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+        room_rows, place_rows, item_rows, rows = await asyncio.gather(
+            rooms_q, places_q, items_q, rows_q
+        )
+    room_words = {r["id"]: r["spoken_name"] or r["name"] for r in room_rows.data}
+    room_by_name = {r["name"]: r["spoken_name"] or r["name"] for r in room_rows.data}
+    by_landmark = {p["landmark_id"]: p for p in place_rows.data}
+    by_address = {p["address"]: p for p in place_rows.data}
+    names = {i["id"]: i["name"] for i in item_rows.data}
+    out = []
+    for row in rows.data:
+        place = by_landmark.get(row.get("landmark_id")) or by_address.get(row.get("address"))
+        room = (
+            place["room_spoken"]
+            if place
+            else room_words.get(row.get("room_id")) or room_by_name.get(row.get("address"))
+        )
+        out.append(
+            TimelineRow.model_validate(
+                {
+                    **row,
+                    "item": names.get(row.get("item_id")),
+                    "room": room,
+                    "landmark": place["landmark_spoken"] if place else None,
+                    "photo": row.get("crop_url"),
+                }
+            )
+        )
+    return out
+
+
+async def log_told(item_id: UUID, landmark_id: UUID, label: str, note: str | None) -> UUID | None:
+    """The family says where an item is: a `told` stay from a `manual` source, active at once."""
+    params: dict[str, Any] = {
+        "p_home": _home(),
+        "p_item": str(item_id),
+        "p_label": label,
+        "p_room": None,
+        "p_landmark": str(landmark_id),
+        "p_relation": "on",
+        "p_in_hand": False,
+        "p_seen_at": _utc(datetime.now(UTC)),
+        "p_description": note,
+        "p_event": "told",
+        "p_source": "manual",
+    }
+    try:
+        async with asyncio.timeout(WRITE_TIMEOUT_S):
+            client = await _get_client()
+            response = await client.rpc("log_sighting", params).execute()
+    except APIError as exc:
+        if exc.code == "22023":
+            raise InvalidPlace(exc.message or "22023") from exc
+        raise
+    return UUID(response.data) if response.data else None
+
+
+async def _insert(table: str, row: dict[str, Any]) -> dict[str, Any]:
+    try:
+        async with asyncio.timeout(WRITE_TIMEOUT_S):
+            client = await _get_client()
+            response = await client.table(table).insert(row).execute()
+    except APIError as exc:
+        if exc.code == "23505":
+            raise Duplicate(exc.message or "23505") from exc
+        raise
+    return response.data[0]
+
+
+async def add_item(
+    *,
+    name: str,
+    aliases: list[str],
+    category: str,
+    color: str | None,
+    description: str | None,
+    plural: bool,
+    home_landmark_id: UUID | None,
+) -> Item:
+    row = await _insert(
+        "items",
+        {
+            "home_id": _home(),
+            "name": name,
+            "aliases": aliases,
+            "category": category,
+            "color": color,
+            "description": description,
+            "plural": plural,
+            "home_landmark_id": str(home_landmark_id) if home_landmark_id else None,
+        },
+    )
+    return Item.model_validate(row)
+
+
+async def add_room(*, name: str, spoken_name: str, capture_allowed: bool) -> Room:
+    row = await _insert(
+        "rooms",
+        {
+            "home_id": _home(),
+            "name": name,
+            "spoken_name": spoken_name,
+            "capture_allowed": capture_allowed,
+        },
+    )
+    return Room.model_validate(row)
+
+
+async def add_landmark(*, room_id: UUID, name: str, spoken_name: str, kind: LandmarkKind) -> UUID:
+    row = await _insert(
+        "landmarks",
+        {"room_id": str(room_id), "name": name, "spoken_name": spoken_name, "kind": kind},
+    )
+    return UUID(row["id"])
+
+
+async def camera_today(day_start: datetime) -> tuple[int, datetime | None]:
+    """Worn minutes since `day_start` and the newest minute any frame arrived (`wear_minutes`)."""
+    home = _home()
+    async with asyncio.timeout(WRITE_TIMEOUT_S):
+        client = await _get_client()
+        worn, last = await asyncio.gather(
+            client.table("wear_minutes")
+            .select("minute", count="exact")
+            .eq("home_id", home)
+            .gte("minute", _utc(day_start))
+            .gte("moving", 2)
+            .limit(1)
+            .execute(),
+            client.table("wear_minutes")
+            .select("minute")
+            .eq("home_id", home)
+            .order("minute", desc=True)
+            .limit(1)
+            .execute(),
+        )
+    newest = datetime.fromisoformat(last.data[0]["minute"]) if last.data else None
+    return int(worn.count or 0), newest

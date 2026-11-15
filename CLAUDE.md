@@ -54,6 +54,8 @@ app/look.py              "where to look": places ranked with chances for /snapsh
 app/concerns.py          safety-loop rules: urgency, quiet-day check-in (pure, docs/INSIGHTS.md)
 app/patterns.py          change from usual: daily facts, two-track detector, wording (pure)
 app/insights.py          the insights endpoints' work: concerns, family tags, patterns
+app/family.py            the dashboard's work: board, history, setup, told, add item/room/place
+app/photos.py            signed crop links, cached 50 min so the dashboard's photos do not flicker
 app/names.py             Typesense: spoken words -> item name before ask_item (optional, 300 ms, falls back)
 app/voice/vapi.py        Vapi tool webhook
 app/perception/schema.py Pydantic models for the perception result, boxes, the Gemini JSON schema

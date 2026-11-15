@@ -6,6 +6,8 @@ time sees only the fakes below.
 
 import os
 
+import pytest
+
 from app.config import Settings, get_settings
 
 FAKE_ENV = {
@@ -19,3 +21,11 @@ for _name in Settings.model_fields:
 os.environ.update(FAKE_ENV)
 Settings.model_config["env_file"] = None
 get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_photo_links() -> None:
+    """Signed links are cached per process (`app.photos`); every test starts with none."""
+    from app import photos
+
+    photos.clear()

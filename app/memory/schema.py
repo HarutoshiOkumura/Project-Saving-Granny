@@ -22,6 +22,7 @@ class Item(BaseModel):
     category: str | None = None  # the detector's class: items of one category are look-alikes
     color: str | None = None
     description: str | None = None
+    plural: bool = False  # "glasses", "keys": the voice says "they"
     home_landmark_id: UUID | None = None  # where the family says it belongs
 
 
@@ -241,6 +242,53 @@ class PatternRows(BaseModel):
     questions: list[QuestionRow]
     answered_by: list[StayRow]  # the stays the questions were answered from
     put_downs: list[StayRow]
+
+
+# ---------------------------------------------------------------------------------------------
+# Family dashboard (step 08): the home's setup and the history
+# ---------------------------------------------------------------------------------------------
+
+LandmarkKind = Literal["surface", "container", "fixture", "floor"]
+
+
+class Room(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    name: str
+    spoken_name: str | None = None
+    capture_allowed: bool
+
+
+class SetupPlace(BaseModel):
+    """One row of the `places` view, for dropdowns: `room` and `landmark` are spoken names."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    landmark_id: UUID
+    room_id: UUID
+    room: str
+    landmark: str
+    kind: LandmarkKind
+    address: str
+    capture_allowed: bool
+
+
+class TimelineRow(BaseModel):
+    """One stay for the history: `item` None is an object nobody registered (step 12)."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    sighting_id: UUID
+    item: str | None = None
+    event_type: str
+    status: str
+    in_hand: bool
+    first_seen_at: AwareDatetime
+    last_seen_at: AwareDatetime
+    room: str | None = None
+    landmark: str | None = None
+    photo: str | None = None  # storage path; the route signs it
 
 
 def _none_to_list(value: object) -> object:

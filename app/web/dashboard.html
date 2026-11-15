@@ -1,0 +1,1458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Find It Family</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23003b71'/%3E%3Ccircle cx='28' cy='28' r='14' fill='none' stroke='%23fff' stroke-width='6'/%3E%3Ccircle cx='28' cy='28' r='4.5' fill='%2392ccf0'/%3E%3Cpath d='M38.5 38.5l11 11' stroke='%23fff' stroke-width='7' stroke-linecap='round'/%3E%3C/svg%3E">
+<meta name="description" content="Where your family member's things are, what to check on, and how their week is going.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  /* Tokens. Palette after the large US health-portal convention (navy, deep blue, a bright
+     clinical blue, pale-blue bands). Every text pair is at least 7:1 (WCAG AAA); the bright
+     blue and the light blue are used only for marks, rules and focus, never for text. */
+  :root {
+    --ink: #0d1c3d;        /* text, top bar */
+    --brand: #003b71;      /* actions, links, active nav */
+    --signal: #0078b3;     /* bars, focus ring, active nav rule: non-text only */
+    --sky: #92ccf0;        /* the wordmark's dot, on navy only */
+    --muted: #464f63;      /* secondary text, 7.5:1 or more on every surface here */
+    --pale: #f2f8fb;       /* structural bands */
+    --surface: #f4f5f6;    /* photo frames, quiet fills */
+    --line: #d3d6dc;
+    --line-soft: #e9ebee;
+    --alert: #8C1D18;
+    --alert-soft: #fbeeed;
+    --ok: #1b5e20;
+    --font: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    --gutter: 16px;
+    --col: 1120px;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: #fff; color: var(--ink); font-family: var(--font); font-size: 20px; line-height: 1.5; }
+  h1, h2, h3 { line-height: 1.2; margin: 0; font-weight: 700; text-wrap: balance; }
+  p { margin: 0; text-wrap: pretty; }
+  a { color: var(--brand); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--signal); outline-offset: 3px; }
+  .wrap { max-width: var(--col); margin: 0 auto; padding: 0 var(--gutter); }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .cap::first-letter { text-transform: uppercase; }
+
+  /* Buttons: one primary style, one quiet style, one text style */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+    min-height: 56px; padding: 10px 24px; border-radius: 6px; border: 2px solid var(--brand);
+    background: var(--brand); color: #fff; font-weight: 700; cursor: pointer; text-align: center;
+    transition: background-color 600ms ease, border-color 600ms ease;
+  }
+  .btn:hover { background: var(--ink); border-color: var(--ink); }
+  .btn.quiet { background: #fff; color: var(--brand); }
+  .btn.quiet:hover { background: var(--pale); color: var(--brand); border-color: var(--brand); }
+  .btn.big { min-height: 72px; }
+  .btn.alert { background: var(--alert); border-color: var(--alert); }
+  .btn.alert:hover { background: #6e1612; border-color: #6e1612; }
+  .btn:disabled { opacity: .6; cursor: wait; }
+  .text-btn {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 0;
+    background: none; border: 0; color: var(--brand); font-weight: 700; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 2px;
+  }
+  .text-btn:hover { color: var(--ink); }
+
+  /* Wordmark: our own lens with a found dot */
+  .mark { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; font-size: 24px; letter-spacing: 0; white-space: nowrap; }
+  .mark svg { width: 34px; height: 34px; flex: none; }
+
+  /* Sign-in */
+  #gate { min-height: 100vh; background: var(--pale); display: flex; align-items: center; justify-content: center; padding: 24px var(--gutter); }
+  #gate .card-in { background: #fff; border: 1px solid var(--line); border-radius: 8px; width: 100%; max-width: 520px; padding: 32px 28px; }
+  #gate .mark { color: var(--brand); margin-bottom: 24px; }
+  #gate h1 { font-size: 30px; margin-bottom: 10px; }
+  #gate p.lead { color: var(--muted); margin-bottom: 24px; }
+  #gate .btn { width: 100%; min-height: 72px; }
+
+  /* Top bar and navigation */
+  .topbar { background: var(--ink); color: #fff; }
+  .topbar .wrap { display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; min-height: 72px; padding-top: 10px; padding-bottom: 10px; }
+  .topbar .mark { color: #fff; }
+  .topbar .for { color: #c7d3e3; font-size: 18px; }
+  .topbar .spacer { flex: 1; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px; border-radius: 4px; padding: 4px 10px;
+    font-size: 16px; line-height: 1.4; background: rgba(255,255,255,.08); color: #e6edf6; border: 1px solid rgba(255,255,255,.22);
+  }
+  .chip .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--sky); flex: none; }
+  .chip.off .dot { background: transparent; border: 2px solid #c7d3e3; }
+  .topbar .signout { color: #fff; background: none; border: 0; min-height: 44px; padding: 6px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 4px; font-size: 18px; }
+  .statusline { display: flex; gap: 6px 18px; flex-wrap: wrap; font-size: 16px; color: var(--muted); padding-top: 8px; padding-bottom: 8px; min-height: 40px; }
+  #net { color: var(--alert); font-weight: 700; }
+
+  nav.tabs { border-bottom: 1px solid var(--line); background: #fff; }
+  nav.tabs .wrap { display: flex; gap: 4px; overflow-x: auto; }
+  nav.tabs button {
+    position: relative; min-height: 56px; padding: 8px 18px; border: 0; background: none; cursor: pointer;
+    color: var(--muted); font-weight: 700; font-size: 19px; white-space: nowrap;
+  }
+  nav.tabs button:hover { color: var(--brand); }
+  nav.tabs button[aria-selected="true"] { color: var(--brand); }
+  nav.tabs button[aria-selected="true"]::after {
+    content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 4px; border-radius: 2px 2px 0 0; background: var(--signal);
+  }
+
+  main { padding: 0 0 56px; }
+  section[role=tabpanel] { padding-top: 8px; }
+  #panel-now { padding-top: 0; }
+  .section-title { font-size: 30px; margin: 0 0 6px; }
+  .section-lead { color: var(--muted); margin: 0 0 20px; max-width: 64ch; }
+
+  /* Alerts: above every tab */
+  #safety:empty { display: none; }
+  #safety { padding: 12px 0 24px; display: flex; flex-direction: column; gap: 12px; }
+  .concern { border: 2px solid var(--brand); border-left-width: 8px; border-radius: 8px; padding: 18px 20px; background: #fff; }
+  .concern.urgent { border-color: var(--alert); background: var(--alert-soft); }
+  .concern-head { display: flex; gap: 14px; align-items: flex-start; }
+  .icon { flex: none; width: 40px; height: 40px; margin-top: 2px; }
+  .concern .kind { font-weight: 700; font-size: 18px; color: var(--brand); margin-bottom: 2px; }
+  .concern.urgent .kind { color: var(--alert); }
+  .concern h2 { font-size: 26px; margin-bottom: 6px; }
+  .concern p + p { margin-top: 4px; }
+  .concern .fine { color: var(--muted); font-size: 17px; }
+  .concern.urgent .fine { color: #4a2a28; }
+  .concern .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+  .concern .actions .btn { min-height: 72px; }
+  .notice { display: flex; gap: 12px; align-items: flex-start; border-left: 6px solid var(--signal); background: var(--pale); border-radius: 0 8px 8px 0; padding: 14px 18px; }
+
+  /* Now: the roll call is the page's one bold element */
+  .rollcall { background: var(--pale); border-bottom: 1px solid var(--line-soft); }
+  .rollcall .wrap { padding-top: 28px; padding-bottom: 28px; }
+  .rollcall h1 { font-size: 34px; margin-bottom: 6px; }
+  .rollcall .summary { color: var(--muted); margin-bottom: 18px; }
+  .roll { list-style: none; margin: 0; padding: 0; border-top: 1px solid #c9dbe7; }
+  .roll a {
+    display: grid; grid-template-columns: minmax(150px, 220px) 1fr auto; gap: 4px 24px; align-items: baseline;
+    padding: 14px 4px; border-bottom: 1px solid #c9dbe7; color: var(--ink); text-decoration: none; font-size: 22px;
+  }
+  .roll a:hover .where { text-decoration: underline; text-underline-offset: 4px; }
+  .roll .name { font-weight: 700; }
+  .roll .when { color: var(--muted); font-size: 18px; text-align: right; white-space: nowrap; }
+  .roll .look { display: inline-flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; color: var(--brand); margin-left: 10px; white-space: nowrap; }
+  .roll .look::before { content: ""; width: 12px; height: 12px; border: 2px solid var(--brand); border-radius: 50%; }
+
+  /* Item answers: the main content */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; padding-top: 28px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; display: flex; flex-direction: column; min-width: 0; scroll-margin-top: 24px; }
+  .card:target { border-color: var(--signal); box-shadow: 0 0 0 2px var(--signal); }
+  .photo { aspect-ratio: 16 / 10; background: var(--surface); display: flex; align-items: center; justify-content: center; overflow: hidden; border-bottom: 1px solid var(--line-soft); }
+  .photo img { width: 100%; height: 100%; object-fit: contain; }
+  .photo img.small { width: auto; height: auto; }
+  .photo .none { color: var(--muted); font-size: 18px; padding: 12px; text-align: center; }
+  .card .body { padding: 18px 20px 14px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .card h2 { font-size: 26px; overflow-wrap: anywhere; }
+  .card h2::first-letter { text-transform: uppercase; }
+  .state { font-size: 16px; font-weight: 700; padding: 2px 10px; border-radius: 4px; background: var(--pale); color: var(--brand); border: 1px solid #c9dbe7; }
+  .state.never { background: var(--surface); color: var(--muted); border-color: var(--line); }
+  .state.moved { background: #fff; color: var(--alert); border-color: var(--alert); }
+  .sentence { font-size: 20px; }
+  .look-block h3 { font-size: 17px; color: var(--muted); font-weight: 700; margin-bottom: 8px; }
+  .look-block ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .look-block .row1 { display: flex; justify-content: space-between; gap: 12px; font-size: 18px; }
+  .look-block .row1 span:first-child { overflow-wrap: anywhere; }
+  .look-block .row1 span:first-child::first-letter { text-transform: uppercase; }
+  .look-block .pct { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .look-block li.first .row1 { font-weight: 700; }
+  .look-block .why { color: var(--muted); font-size: 16px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--line-soft); overflow: hidden; margin-top: 4px; }
+  .bar > i { display: block; height: 100%; background: var(--signal); border-radius: 3px; transition: width 600ms ease; }
+  .bar.else > i { background: #677083; }
+  .gone { font-size: 17px; color: var(--muted); }
+  .card .foot { border-top: 1px solid var(--line-soft); padding: 4px 20px 6px; }
+  .card .foot .text-btn { font-size: 18px; }
+  .empty { padding: 28px 0; color: var(--muted); }
+
+  /* History */
+  .history-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; font-size: 18px; color: var(--muted); }
+  .toggle input { width: 24px; height: 24px; accent-color: var(--brand); }
+  .rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .hrow { display: grid; grid-template-columns: 88px minmax(0, 1fr) 230px 190px; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .thumb { width: 88px; height: 66px; border-radius: 4px; background: var(--surface); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--muted); text-align: center; }
+  .thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .hrow .what { font-weight: 700; overflow-wrap: anywhere; }
+  .hrow .what::first-letter { text-transform: uppercase; }
+  .hrow .where { color: var(--ink); font-size: 18px; overflow-wrap: anywhere; }
+  .hrow .where::first-letter { text-transform: uppercase; }
+  .hrow .when, .hrow .how { font-size: 17px; color: var(--muted); }
+  .hrow .when b { color: var(--ink); font-weight: 700; display: block; }
+
+  /* Patterns */
+  .band { background: var(--pale); border-radius: 8px; padding: 22px 24px; margin-bottom: 24px; }
+  .band h2 { font-size: 24px; margin-bottom: 8px; }
+  .band p + p { margin-top: 6px; }
+  .change { border-left: 6px solid var(--signal); background: #fff; padding: 10px 14px; border-radius: 0 6px 6px 0; margin-top: 10px; }
+  .facts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 32px; }
+  .facts li { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .block { margin-bottom: 32px; }
+  .block > h2 { font-size: 24px; margin-bottom: 12px; }
+  .chart { margin: 0 0 24px; position: relative; }
+  .chart figcaption { font-weight: 700; margin-bottom: 2px; }
+  .chart .sub { color: var(--muted); font-size: 16px; margin-bottom: 8px; }
+  .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .tip { position: absolute; pointer-events: none; background: var(--ink); color: #fff; font-size: 16px; padding: 6px 10px; border-radius: 4px; white-space: nowrap; transform: translate(-50%, -100%); }
+  details.table summary { min-height: 44px; display: inline-flex; align-items: center; cursor: pointer; color: var(--brand); font-weight: 700; }
+  table { border-collapse: collapse; width: 100%; font-size: 17px; font-variant-numeric: tabular-nums; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+  th { color: var(--muted); }
+  .tablewrap { overflow-x: auto; max-width: 100%; }
+  .odd { list-style: none; margin: 0; padding: 0; }
+  .odd li { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .odd li::first-letter { text-transform: uppercase; }
+
+  /* Forms */
+  form { display: flex; flex-direction: column; gap: 16px; }
+  label.f { display: flex; flex-direction: column; gap: 6px; font-weight: 700; font-size: 18px; }
+  label.f .hint { font-weight: 400; font-size: 16px; color: var(--muted); }
+  input[type=text], input[type=password], input[type=date], select, textarea {
+    min-height: 52px; padding: 10px 14px; border: 1px solid #6b7385; border-radius: 6px; background: #fff; width: 100%; font-size: 19px;
+  }
+  input:focus-visible, select:focus-visible { outline: 3px solid var(--signal); outline-offset: 1px; border-color: var(--brand); }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; margin: 0; }
+  legend { float: left; width: 100%; font-weight: 700; font-size: 18px; padding: 0; margin: 0 0 6px; }
+  legend + * { clear: both; }
+  .choice { display: flex; align-items: center; gap: 12px; min-height: 48px; cursor: pointer; }
+  .choice input { width: 24px; height: 24px; flex: none; accent-color: var(--brand); }
+  .msg { min-height: 1.5em; font-weight: 700; font-size: 18px; }
+  .msg:empty { min-height: 0; }
+  .msg.err { color: var(--alert); }
+  .msg.good { color: var(--ok); }
+  .form-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+  /* Setup */
+  .tell { display: flex; align-items: center; justify-content: space-between; gap: 16px 24px; flex-wrap: wrap; background: var(--pale); border-radius: 8px; padding: 22px 24px; margin-bottom: 32px; }
+  .tell h2 { font-size: 24px; margin-bottom: 4px; }
+  .tell p { color: var(--muted); }
+  .setup-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; align-items: start; }
+  .setup-col h2 { font-size: 24px; margin-bottom: 4px; }
+  .setup-col .count { color: var(--muted); font-size: 17px; margin-bottom: 10px; }
+  .list { list-style: none; margin: 0 0 8px; padding: 0; border-top: 1px solid var(--line); }
+  .list li { padding: 10px 0; border-bottom: 1px solid var(--line-soft); font-size: 18px; overflow-wrap: anywhere; }
+  .list li .t::first-letter { text-transform: uppercase; }
+  .list li .t { font-weight: 700; display: block; }
+  .list li .s { display: block; color: var(--muted); font-size: 16px; }
+  .adder { border: 1px solid var(--line); border-radius: 8px; padding: 18px; margin-top: 8px; background: #fff; }
+  .adder[hidden] { display: none; }
+  .setup-note { color: var(--muted); font-size: 17px; margin-top: 28px; max-width: 70ch; }
+
+  dialog { border: 0; border-radius: 8px; padding: 0; max-width: 560px; width: calc(100% - 2 * var(--gutter)); color: var(--ink); }
+  dialog::backdrop { background: rgba(13, 28, 61, .55); }
+  dialog .box { padding: 24px; }
+  dialog h2 { font-size: 26px; margin-bottom: 16px; }
+
+  footer.foot { border-top: 1px solid var(--line); background: var(--pale); }
+  footer.foot .wrap { padding-top: 18px; padding-bottom: 24px; color: var(--muted); font-size: 16px; }
+
+  @media (max-width: 900px) {
+    .setup-cols { grid-template-columns: 1fr; }
+    .hrow { grid-template-columns: 88px minmax(0, 1fr); }
+    .hrow .when, .hrow .how { grid-column: 2; }
+  }
+  @media (max-width: 600px) {
+    body { font-size: 19px; }
+    .topbar .wrap { gap: 6px 12px; }
+    .topbar .spacer { display: none; }
+    .topbar .signout { order: 2; margin-left: auto; }
+    .topbar .for { order: 3; flex-basis: 100%; font-size: 17px; }
+    .topbar .chip { order: 4; }
+    .rollcall h1 { font-size: 28px; }
+    .roll a { grid-template-columns: 1fr; gap: 0; font-size: 20px; }
+    .roll .when { text-align: left; }
+    .roll .look { margin-left: 0; }
+    .grid { grid-template-columns: 1fr; gap: 18px; }
+    nav.tabs button { padding: 8px 12px; font-size: 18px; }
+    .concern .actions { grid-template-columns: 1fr; }
+    .section-title { font-size: 26px; }
+    .band, .tell { padding: 18px 16px; }
+    .hrow { grid-template-columns: 72px minmax(0, 1fr); gap: 12px; }
+    .thumb { width: 72px; height: 56px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<!-- Sign-in -->
+<section id="gate" class="hidden" aria-labelledby="gate-title">
+  <div class="card-in">
+    <div class="mark" aria-hidden="true"><svg viewBox="0 0 34 34"><circle cx="14.5" cy="14.5" r="9.5" fill="none" stroke="currentColor" stroke-width="3.5"/><circle cx="14.5" cy="14.5" r="3" fill="#0078b3"/><path d="M21.6 21.6l7.6 7.6" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>Find It</div>
+    <h1 id="gate-title">Sign in to your family page</h1>
+    <p class="lead">Type the family code to see where things are. This device remembers it until you sign out.</p>
+    <form id="gate-form" autocomplete="off">
+      <label class="f">Family code
+        <input id="gate-token" type="password" required autocomplete="current-password">
+      </label>
+      <button class="btn big" type="submit">Sign in</button>
+      <p id="gate-msg" class="msg err" role="alert"></p>
+    </form>
+  </div>
+</section>
+
+<!-- Signed in -->
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div class="wrap">
+      <div class="mark"><svg viewBox="0 0 34 34" aria-hidden="true"><circle cx="14.5" cy="14.5" r="9.5" fill="none" stroke="currentColor" stroke-width="3.5"/><circle cx="14.5" cy="14.5" r="3" fill="#92ccf0"/><path d="M21.6 21.6l7.6 7.6" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>Find It</div>
+      <span id="title" class="for"></span>
+      <span class="spacer"></span>
+      <span id="camera" class="chip off"><span class="dot" aria-hidden="true"></span><span id="camera-text">Camera</span></span>
+      <button id="signout" class="signout" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Sections">
+    <div class="wrap" role="tablist">
+      <button role="tab" id="tab-now" aria-controls="panel-now" aria-selected="true" data-tab="now">Now</button>
+      <button role="tab" id="tab-history" aria-controls="panel-history" aria-selected="false" tabindex="-1" data-tab="history">History</button>
+      <button role="tab" id="tab-patterns" aria-controls="panel-patterns" aria-selected="false" tabindex="-1" data-tab="patterns">Patterns</button>
+      <button role="tab" id="tab-setup" aria-controls="panel-setup" aria-selected="false" tabindex="-1" data-tab="setup">Setup</button>
+    </div>
+  </nav>
+
+  <main>
+    <div class="wrap statusline"><span id="updated"></span><span id="net" role="status" aria-live="polite"></span></div>
+    <!-- Alerts: above every tab, because nobody should miss them -->
+    <div class="wrap"><section id="safety" aria-live="polite" aria-label="Things to check on"></section></div>
+
+    <section id="panel-now" role="tabpanel" aria-labelledby="tab-now">
+      <div class="rollcall">
+        <div class="wrap">
+          <h1 id="roll-title">Where things are</h1>
+          <p id="roll-summary" class="summary"></p>
+          <ul id="roll" class="roll"></ul>
+        </div>
+      </div>
+      <div class="wrap">
+        <div id="cards" class="grid"></div>
+        <p id="cards-empty" class="empty hidden">No things to find yet. Add the first one in Setup.</p>
+      </div>
+    </section>
+
+    <section id="panel-history" role="tabpanel" aria-labelledby="tab-history" class="hidden">
+      <div class="wrap">
+        <div class="history-head">
+          <div>
+            <h1 class="section-title">What the camera saw</h1>
+            <p class="section-lead">Newest first. A thing is listed once the camera has seen it in the same place twice.</p>
+          </div>
+          <label class="toggle"><input id="debug" type="checkbox"> Include single glimpses (for testing)</label>
+        </div>
+        <ul id="timeline" class="rows"></ul>
+        <p id="timeline-empty" class="empty hidden">Nothing yet. Things appear here once the camera has seen them twice.</p>
+      </div>
+    </section>
+
+    <section id="panel-patterns" role="tabpanel" aria-labelledby="tab-patterns" class="hidden">
+      <div class="wrap">
+        <h1 class="section-title">How the days are going</h1>
+        <p id="p-note" class="section-lead"></p>
+        <div class="band">
+          <h2 id="p-status"></h2>
+          <div id="p-changes"></div>
+          <p id="p-advice" class="muted"></p>
+        </div>
+        <div class="block">
+          <h2>What is usual</h2>
+          <ul id="p-usual" class="facts"></ul>
+        </div>
+        <div class="block">
+          <figure id="chart-q" class="chart"></figure>
+          <figure id="chart-w" class="chart"></figure>
+          <details class="table">
+            <summary>Show the numbers as a table</summary>
+            <div class="tablewrap"><table id="p-table"></table></div>
+          </details>
+        </div>
+        <div class="block">
+          <h2>Things in unusual places</h2>
+          <ul id="p-odd" class="odd"></ul>
+          <p id="p-odd-empty" class="muted">None so far. Things left somewhere new will be listed here.</p>
+        </div>
+        <div class="block">
+          <h2>Something changed?</h2>
+          <p class="section-lead">Tell Find It about a visit, a new medicine or a trip, so a busy or quiet day is read the right way.</p>
+          <form id="event-form" style="max-width:560px">
+            <label class="f">What happened
+              <select id="event-kind" required></select>
+            </label>
+            <label class="f">When
+              <input id="event-date" type="date" required>
+            </label>
+            <label class="f">Note <span class="hint">Optional, a few words</span>
+              <input id="event-note" type="text" maxlength="200">
+            </label>
+            <div class="form-actions"><button class="btn" type="submit">Save the change</button></div>
+            <p class="msg" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-setup" role="tabpanel" aria-labelledby="tab-setup" class="hidden">
+      <div class="wrap">
+        <h1 class="section-title">Setup</h1>
+        <p class="section-lead">The things Find It looks for, the rooms it knows, and the places in them where things get put down.</p>
+        <div class="tell">
+          <div>
+            <h2>Tell Find It where something is</h2>
+            <p>Put something away yourself? Find It answers with it right away.</p>
+          </div>
+          <button id="open-told" class="btn" type="button">Tell Find It</button>
+        </div>
+
+        <div class="setup-cols">
+          <div class="setup-col">
+            <h2>Things</h2>
+            <p id="count-items" class="count"></p>
+            <ul id="list-items" class="list"></ul>
+            <button class="text-btn" type="button" data-adder="adder-item" aria-expanded="false" aria-controls="adder-item">Add a thing</button>
+            <div id="adder-item" class="adder" hidden>
+              <form id="item-form">
+                <label class="f">Name <span class="hint">The word your family member uses, like "glasses"</span>
+                  <input id="item-name" type="text" required maxlength="40">
+                </label>
+                <label class="f">Colour <span class="hint">Optional</span>
+                  <input id="item-color" type="text" maxlength="40">
+                </label>
+                <label class="f">Short description <span class="hint">Optional, like "black reading glasses, round frames"</span>
+                  <input id="item-desc" type="text" maxlength="200">
+                </label>
+                <label class="f">Other names <span class="hint">Optional, separated by commas, like "specs, readers"</span>
+                  <input id="item-aliases" type="text" maxlength="200">
+                </label>
+                <label class="f">Kind <span class="hint">Optional. Look-alikes share a kind, like two bags</span>
+                  <input id="item-kind" type="text" maxlength="40">
+                </label>
+                <label class="choice"><input id="item-plural" type="checkbox"> Say "they" for it, like glasses or keys</label>
+                <label class="f">Usual place <span class="hint">Optional</span>
+                  <select id="item-home"></select>
+                </label>
+                <div class="form-actions"><button class="btn" type="submit">Add thing</button></div>
+                <p class="msg" role="status" aria-live="polite"></p>
+              </form>
+            </div>
+          </div>
+
+          <div class="setup-col">
+            <h2>Rooms</h2>
+            <p id="count-rooms" class="count"></p>
+            <ul id="list-rooms" class="list"></ul>
+            <button class="text-btn" type="button" data-adder="adder-room" aria-expanded="false" aria-controls="adder-room">Add a room</button>
+            <div id="adder-room" class="adder" hidden>
+              <form id="room-form" novalidate>
+                <label class="f">Name <span class="hint">One or two words, like "kitchen"</span>
+                  <input id="room-name" type="text" required maxlength="40">
+                </label>
+                <label class="f">What to call it out loud <span class="hint">Optional, like "the kitchen"</span>
+                  <input id="room-spoken" type="text" maxlength="60">
+                </label>
+                <fieldset>
+                  <legend>May the camera record in this room?</legend>
+                  <p class="muted" style="font-size:16px;margin:0 0 4px">Choose No for bathrooms and anywhere private. Nothing is ever saved from a room marked No.</p>
+                  <label class="choice"><input type="radio" name="room-capture" value="yes" required> Yes</label>
+                  <label class="choice"><input type="radio" name="room-capture" value="no" required> No</label>
+                </fieldset>
+                <div class="form-actions"><button class="btn" type="submit">Add room</button></div>
+                <p class="msg" role="status" aria-live="polite"></p>
+              </form>
+            </div>
+          </div>
+
+          <div class="setup-col">
+            <h2>Places</h2>
+            <p id="count-places" class="count"></p>
+            <ul id="list-places" class="list"></ul>
+            <button class="text-btn" type="button" data-adder="adder-place" aria-expanded="false" aria-controls="adder-place">Add a place</button>
+            <div id="adder-place" class="adder" hidden>
+              <form id="place-form">
+                <label class="f">Room
+                  <select id="place-room" required></select>
+                </label>
+                <label class="f">Name <span class="hint">Like "counter" or "nightstand"</span>
+                  <input id="place-name" type="text" required maxlength="40">
+                </label>
+                <label class="f">What to call it out loud <span class="hint">Optional, like "the table beside your bed"</span>
+                  <input id="place-spoken" type="text" maxlength="60">
+                </label>
+                <label class="f">Kind
+                  <select id="place-kind" required>
+                    <option value="surface">Surface: table, counter</option>
+                    <option value="container">Container: drawer, basket</option>
+                    <option value="fixture">Fixture: hook, key holder</option>
+                    <option value="floor">Floor</option>
+                  </select>
+                </label>
+                <div class="form-actions"><button class="btn" type="submit">Add place</button></div>
+                <p class="msg" role="status" aria-live="polite"></p>
+              </form>
+            </div>
+          </div>
+        </div>
+        <p class="setup-note">The camera picks up new things, rooms and places within 30 seconds. Places added here have not been tested with the camera yet.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">Built with HIPAA-style safeguards. Photos are small crops of things, never people; nothing is ever saved from rooms marked private.</div>
+  </footer>
+</div>
+
+<!-- Tell Find It where something is -->
+<dialog id="told-dialog" aria-labelledby="told-title">
+  <div class="box">
+    <h2 id="told-title">Tell Find It where it is</h2>
+    <form id="told-form">
+      <label class="f">Thing
+        <select id="told-item" required></select>
+      </label>
+      <label class="f">Place
+        <select id="told-place" required></select>
+      </label>
+      <label class="f">Note <span class="hint">Optional</span>
+        <input id="told-note" type="text" maxlength="200">
+      </label>
+      <div class="form-actions">
+        <button class="btn" type="submit">Tell Find It</button>
+        <button id="told-close" class="btn quiet" type="button">Close</button>
+      </div>
+      <p class="msg" role="status" aria-live="polite"></p>
+    </form>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+(() => {
+  const TOKEN_KEY = "saveit.token";
+  const POLL_BOARD_MS = 2000;
+  const POLL_TIMELINE_MS = 10000;
+  const POLL_PATTERNS_MS = 60000;
+
+  const KIND_SAY = {
+    fall: "Said they fell",
+    hurt: "Said they were hurt",
+    help: "Asked for help",
+    smoke: "Smelled smoke",
+    scam: "Someone asked them for money",
+    lost_outside: "Said they were lost outside",
+    quiet_day: "A quiet day",
+  };
+  const ANSWER_SAY = {
+    hurt: "Said they were hurt when asked.",
+    ok: "Said they were okay when asked.",
+    no_answer: "Didn't answer when asked if they were hurt.",
+  };
+  const URGENCY_SAY = { urgent: "Urgent", check_in: "Check in", note: "Note" };
+  const STATE_SAY = {
+    seen: "Seen",
+    carried: "In hand",
+    not_there_anymore: "Moved",
+    never_seen: "Not seen yet",
+    unknown_item: "Unknown",
+  };
+  const RELATION_SAY = { on: "On", in: "In", under: "Under", next_to: "Next to", unknown: "Near" };
+  const WHY_SAY = { last_seen: "last seen here", glimpse: "glimpsed here", usual: "usual place", home: "belongs here" };
+  const EVENT_SAY = { seen: "Seen by the camera", told: "Told by family", placed: "Seen put down", confirmed_live: "Confirmed on a call" };
+  const STATUS_SAY = { active: "Confirmed", tentative: "One glimpse", superseded: "Moved since", contradicted: "Not there anymore" };
+  const TAG_SAY = {
+    visitor: "A visitor",
+    unwell: "Not feeling well",
+    hospital: "Hospital stay",
+    new_medicine: "New medicine",
+    new_item: "New thing added",
+    away: "Away from home",
+    camera_off: "Camera off or charging",
+    new_hearing_aid: "New hearing aid",
+    other: "Something else",
+  };
+
+  // ---------------------------------------------------------------- state
+  const state = {
+    token: null,
+    board: null,
+    setup: null,
+    patterns: null,
+    tab: "now",
+    lastOk: null,
+    busy: { board: false, timeline: false, patterns: false },
+    timers: [],
+    cards: new Map(), // item name -> {root, refs, photo}
+  };
+
+  // ---------------------------------------------------------------- helpers
+  const $ = (id) => document.getElementById(id);
+
+  function el(tag, props, ...kids) {
+    const node = document.createElement(tag);
+    if (props) {
+      for (const [k, v] of Object.entries(props)) {
+        if (v == null) continue;
+        if (k === "class") node.className = v;
+        else if (k === "text") node.textContent = v;
+        else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+        else if (k in node && k !== "style") node[k] = v;
+        else node.setAttribute(k, v);
+      }
+    }
+    for (const kid of kids) {
+      if (kid == null || kid === false) continue;
+      node.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+    }
+    return node;
+  }
+
+  function store(action, value) {
+    try {
+      if (action === "get") return window.localStorage.getItem(TOKEN_KEY);
+      if (action === "set") window.localStorage.setItem(TOKEN_KEY, value);
+      if (action === "del") window.localStorage.removeItem(TOKEN_KEY);
+    } catch (_) { /* private mode or blocked storage: the code lives in memory only */ }
+    return null;
+  }
+
+  class Unauthorized extends Error {}
+
+  async function api(method, path, body) {
+    const headers = { Accept: "application/json", Authorization: "Bearer " + state.token };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    if (res.status === 401) throw new Unauthorized("bad code");
+    let data = null;
+    try { data = await res.json(); } catch (_) { data = null; }
+    if (!res.ok) {
+      const detail = data && data.detail;
+      const text = typeof detail === "string" ? detail
+        : Array.isArray(detail) ? detail.map((d) => d.msg).filter(Boolean).join("; ")
+        : "Find It could not save that (error " + res.status + "). Try again in a moment.";
+      const err = new Error(text);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function cap(text) {
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  }
+
+  function tz() {
+    return (state.board && state.board.timezone) || undefined;
+  }
+
+  function localParts(date) {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz(), year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false, weekday: "long",
+    });
+    const parts = Object.fromEntries(fmt.formatToParts(date).map((p) => [p.type, p.value]));
+    return { day: parts.year + "-" + parts.month + "-" + parts.day, hour: Number(parts.hour) % 24, weekday: parts.weekday };
+  }
+
+  function localTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: tz(), weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    }).format(d);
+  }
+
+  function shortDay(day) {
+    return new Date(day + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  function dayDiff(a, b) {
+    return Math.round((Date.parse(a + "T00:00:00Z") - Date.parse(b + "T00:00:00Z")) / 86400000);
+  }
+
+  function partOfDay(hour) {
+    return hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+  }
+
+  /** Relative time in the voice rules' words ("just now", "about 40 minutes ago", "this morning"). */
+  function ago(iso) {
+    if (!iso) return "";
+    const then = new Date(iso);
+    const now = state.board && state.board.now ? new Date(state.board.now) : new Date();
+    // Whole minutes, then halves round up: the same arithmetic as speak(), so the page and the
+    // sentence never disagree ("about fifteen minutes" in one and "about 20" in the other).
+    const minutes = Math.max(0, Math.floor((now - then) / 60000));
+    const halfUp = (x) => Math.floor(x + 0.5);
+    if (minutes < 2) return "just now";
+    if (minutes < 10) return "a few minutes ago";
+    if (minutes < 60) return "about " + Math.min(55, Math.max(10, halfUp(minutes / 5) * 5)) + " minutes ago";
+    if (minutes < 90) return "about an hour ago";
+    if (minutes <= 300) return "about " + halfUp(minutes / 60) + " hours ago";
+    const t = localParts(then);
+    const n = localParts(now);
+    const days = dayDiff(n.day, t.day);
+    if (days === 0) return "this " + partOfDay(t.hour);
+    if (days === 1) return "yesterday " + partOfDay(t.hour);
+    if (days < 7) return "on " + t.weekday;
+    return "a while ago";
+  }
+
+  function duration(minutes) {
+    const m = Math.round(minutes || 0);
+    if (m < 60) return m + " min";
+    const h = Math.floor(m / 60);
+    const rest = m % 60;
+    return h + " h" + (rest ? " " + rest + " min" : "");
+  }
+
+  function possessive(name) {
+    if (!name) return "Your family member's";
+    return name + (/s$/i.test(name) ? "'" : "'s");
+  }
+
+  function setMsg(form, text, kind) {
+    const msg = form.querySelector(".msg");
+    msg.textContent = text || "";
+    msg.className = "msg" + (kind ? " " + kind : "");
+  }
+
+  async function submitting(form, work) {
+    const controls = form.querySelectorAll("button, input, select");
+    controls.forEach((c) => { c.disabled = true; });
+    try {
+      await work();
+    } catch (err) {
+      if (err instanceof Unauthorized) return signOut("That family code did not work. Type it again.");
+      setMsg(form, err.message || "Find It could not save that. Try again in a moment.", "err");
+    } finally {
+      controls.forEach((c) => { c.disabled = false; });
+    }
+  }
+
+  // ---------------------------------------------------------------- sign in and out
+  function showGate(message) {
+    $("app").classList.add("hidden");
+    $("gate").classList.remove("hidden");
+    $("gate-msg").textContent = message || "";
+    $("gate-token").value = "";
+    $("gate-token").focus();
+  }
+
+  function signOut(message) {
+    state.token = null;
+    store("del");
+    state.timers.forEach(clearInterval);
+    state.timers = [];
+    state.cards.clear();
+    state.safetyKey = null;
+    $("cards").replaceChildren();
+    $("roll").replaceChildren();
+    $("safety").replaceChildren();
+    showGate(message);
+  }
+
+  async function signIn(token) {
+    state.token = token;
+    try {
+      await api("GET", "/api/board").then(renderBoard);
+    } catch (err) {
+      if (err instanceof Unauthorized) return signOut("That family code did not work. Check it and try again.");
+      $("net").textContent = "Can't reach Find It. Retrying.";
+    }
+    store("set", token);
+    $("gate").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    startPolling();
+    loadSetup();
+  }
+
+  // ---------------------------------------------------------------- polling
+  async function poll(key, fn) {
+    if (state.busy[key] || !state.token) return;
+    state.busy[key] = true;
+    try {
+      await fn();
+      if (key === "board") $("net").textContent = "";
+    } catch (err) {
+      if (err instanceof Unauthorized) return signOut("Type the family code again.");
+      if (key === "board") $("net").textContent = "Can't reach Find It. Retrying.";
+    } finally {
+      state.busy[key] = false;
+    }
+  }
+
+  function startPolling() {
+    state.timers.forEach(clearInterval);
+    state.timers = [
+      setInterval(() => poll("board", () => api("GET", "/api/board").then(renderBoard)), POLL_BOARD_MS),
+      setInterval(() => { if (state.tab === "history") poll("timeline", loadTimeline); }, POLL_TIMELINE_MS),
+      setInterval(() => { if (state.tab === "patterns") poll("patterns", loadPatterns); }, POLL_PATTERNS_MS),
+      setInterval(renderUpdated, 5000),
+    ];
+  }
+
+  function renderUpdated() {
+    if (!state.lastOk) return;
+    const seconds = Math.round((Date.now() - state.lastOk) / 1000);
+    $("updated").textContent = seconds < 10 ? "Updated just now" : "Updated " + seconds + " seconds ago";
+  }
+
+  // ---------------------------------------------------------------- tabs
+  function selectTab(name) {
+    state.tab = name;
+    document.querySelectorAll("nav.tabs button").forEach((b) => {
+      const on = b.dataset.tab === name;
+      b.setAttribute("aria-selected", on ? "true" : "false");
+      b.tabIndex = on ? 0 : -1;
+    });
+    for (const t of ["now", "history", "patterns", "setup"]) {
+      $("panel-" + t).classList.toggle("hidden", t !== name);
+    }
+    if (name === "history") poll("timeline", loadTimeline);
+    if (name === "patterns") poll("patterns", loadPatterns);
+    if (name === "setup") loadSetup();
+  }
+
+  // ---------------------------------------------------------------- Now: board
+  function renderBoard(board) {
+    state.board = board;
+    state.lastOk = Date.now();
+    renderUpdated();
+    $("title").textContent = "for " + possessive(board.person) + " family";
+    $("roll-title").textContent = "Where " + possessive(board.person) + " things are";
+    document.title = possessive(board.person) + " things - Find It";
+    const cam = board.camera || {};
+    const worn = cam.worn_minutes_today || 0;
+    $("camera").classList.toggle("off", worn <= 0);
+    $("camera-text").textContent = (worn > 0 ? "Camera worn " + duration(worn) + " today" : "Camera not worn yet today")
+      + (cam.last_frame_at ? ", last picture " + ago(cam.last_frame_at) : "");
+    renderSafety(board.concerns || {});
+    renderRoll(board.items || []);
+    renderCards(board.items || []);
+  }
+
+  function shapeIcon(urgency) {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 48 48");
+    svg.setAttribute("class", "icon");
+    svg.setAttribute("aria-hidden", "true");
+    const color = urgency === "urgent" ? "#8C1D18" : "#003b71";
+    if (urgency === "urgent") {
+      const tri = document.createElementNS(ns, "path");
+      tri.setAttribute("d", "M24 3 L46 43 L2 43 Z");
+      tri.setAttribute("fill", color);
+      svg.append(tri);
+      const mark = document.createElementNS(ns, "path");
+      mark.setAttribute("d", "M22 16 h4 v14 h-4 Z M22 34 h4 v4 h-4 Z");
+      mark.setAttribute("fill", "#fff");
+      svg.append(mark);
+    } else {
+      const circle = document.createElementNS(ns, "circle");
+      circle.setAttribute("cx", "24");
+      circle.setAttribute("cy", "24");
+      circle.setAttribute("r", "21");
+      circle.setAttribute("fill", color);
+      svg.append(circle);
+      const mark = document.createElementNS(ns, "path");
+      mark.setAttribute("d", "M22 20 h4 v16 h-4 Z M22 12 h4 v4 h-4 Z");
+      mark.setAttribute("fill", "#fff");
+      svg.append(mark);
+    }
+    return svg;
+  }
+
+  function renderSafety(board) {
+    const box = $("safety");
+    const open = (board.concerns || []).filter((c) => c.status === "open");
+    const key = JSON.stringify([open.map((c) => [c.id, c.urgency, c.answer, c.room, ago(c.raised_at)]), board.quiet_day || ""]);
+    if (key === state.safetyKey) return;
+    state.safetyKey = key;
+    const nodes = open.map((c) => {
+      const urgent = c.urgency === "urgent";
+      const where = c.room ? " Last seen in " + c.room + "." : "";
+      // A money request is a note, not an emergency: the family checks in, never "calling 911".
+      const actions = c.kind === "scam"
+        ? el("div", { class: "actions" },
+          el("button", { class: "btn", type: "button", text: "I'll check in with them", onclick: () => handle(c.id, "on_my_way") }),
+          el("button", { class: "btn quiet", type: "button", text: "All OK", onclick: () => handle(c.id, "all_ok") }),
+        )
+        : el("div", { class: "actions" },
+          el("button", { class: "btn" + (urgent ? " alert" : ""), type: "button", text: "I'm on my way", onclick: () => handle(c.id, "on_my_way") }),
+          el("button", { class: "btn" + (urgent ? " alert" : ""), type: "button", text: "I'm calling 911", onclick: () => handle(c.id, "calling_911") }),
+          el("button", { class: "btn quiet", type: "button", text: "All OK", onclick: () => handle(c.id, "all_ok") }),
+        );
+      return el("article", { class: "concern" + (urgent ? " urgent" : ""), role: urgent ? "alert" : "status" },
+        el("div", { class: "concern-head" },
+          shapeIcon(c.urgency),
+          el("div", null,
+            el("p", { class: "kind", text: URGENCY_SAY[c.urgency] || "Note" }),
+            el("h2", { text: (KIND_SAY[c.kind] || "Something to check on") + ", " + ago(c.raised_at) }),
+            el("p", { text: ((ANSWER_SAY[c.answer] || "") + where).trim() || null }),
+            el("p", { class: "fine", text: "Find It asked once and did not call anyone. You decide what happens next." }),
+          ),
+        ),
+        actions,
+      );
+    });
+    if (board.quiet_day) {
+      nodes.push(el("div", { class: "notice", role: "status" }, shapeIcon("check_in"), el("p", { text: board.quiet_day })));
+    }
+    box.replaceChildren(...nodes);
+  }
+
+  async function handle(id, status) {
+    try {
+      await api("POST", "/api/concerns/" + encodeURIComponent(id) + "/handle", { status, by: "Family" });
+      await poll("board", () => api("GET", "/api/board").then(renderBoard));
+    } catch (err) {
+      if (err instanceof Unauthorized) return signOut("Type the family code again.");
+      $("net").textContent = "Find It could not save that answer. Try the button again.";
+    }
+  }
+
+  /** Where a thing is, in a few words, and whether someone should look ("needs a look"). */
+  function whereNow(entry) {
+    const r = entry.result;
+    if (!r) return { text: "Not sure right now", needs: true };
+    const room = r.room ? " in " + r.room : "";
+    if (r.state === "seen") {
+      if (!r.landmark) return { text: "In " + (r.room || "the home"), needs: false, when: r.last_seen_at };
+      return { text: (RELATION_SAY[r.relation] || "On") + " " + r.landmark + room, needs: false, when: r.last_seen_at };
+    }
+    if (r.state === "carried") return { text: "In hand" + room, needs: false, when: r.last_seen_at };
+    if (r.state === "not_there_anymore") return { text: "No longer " + (r.landmark ? "on " + r.landmark : "where it was"), needs: true, when: r.last_seen_at };
+    if (r.state === "never_seen") return { text: "Not seen yet", needs: true };
+    return { text: "Not sure right now", needs: true };
+  }
+
+  function cardId(name) {
+    return "thing-" + String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  }
+
+  function renderRoll(items) {
+    const rows = items.map((entry) => ({ entry, where: whereNow(entry) }));
+    const known = rows.filter((r) => !r.where.needs).length;
+    const needs = rows.length - known;
+    $("roll-summary").textContent = !rows.length ? "No things yet. Add the first one in Setup."
+      : needs === 0 ? (rows.length === 1 ? "The one thing Find It looks for has a known place." : "All " + rows.length + " things have a known place.")
+      : known + " of " + rows.length + " things have a known place. " + needs + (needs === 1 ? " needs a look." : " need a look.");
+    const key = JSON.stringify(rows.map((r) => [r.entry.item, r.where.text, r.where.needs, ago(r.where.when)]));
+    if (key === state.rollKey) return;
+    state.rollKey = key;
+    $("roll").replaceChildren(...rows.map(({ entry, where }) => el("li", null,
+      el("a", { href: "#" + cardId(entry.item) },
+        el("span", { class: "name", text: cap(entry.item) }),
+        el("span", { class: "where" }, where.text, where.needs ? el("span", { class: "look", text: "Needs a look" }) : null),
+        el("span", { class: "when", text: where.when ? cap(ago(where.when)) : "" })))));
+  }
+
+  function makeCard(name) {
+    const refs = {
+      title: el("h2"),
+      state: el("span", { class: "state" }),
+      sentence: el("p", { class: "sentence" }),
+      photo: el("div", { class: "photo" }),
+      look: el("div", { class: "look-block" }),
+    };
+    const tell = el("button", { class: "text-btn", type: "button", text: "Tell Find It where it is", onclick: () => openTold(name) });
+    const root = el("article", { class: "card", id: cardId(name) },
+      refs.photo,
+      el("div", { class: "body" }, el("div", { class: "card-head" }, refs.title, refs.state), refs.sentence, refs.look),
+      el("div", { class: "foot" }, tell));
+    return { root, refs, photoPath: undefined };
+  }
+
+  function renderPhoto(card, entry) {
+    const path = entry.result && entry.result.photo ? entry.result.photo : null;
+    const url = entry.photo_url || null;
+    const key = path && url ? path : null;
+    if (card.photoPath === key) return; // same stored photo: keep the image, no flicker
+    card.photoPath = key;
+    if (key) {
+      const img = el("img", { alt: "The last photo of the " + entry.item, decoding: "async", loading: "lazy" });
+      img.addEventListener("load", () => {
+        if (img.naturalWidth < 160 && img.naturalHeight < 160) { // a tiny crop: at most twice its size
+          img.classList.add("small");
+          img.style.maxWidth = img.naturalWidth * 2 + "px";
+          img.style.maxHeight = img.naturalHeight * 2 + "px";
+        }
+      });
+      img.src = url;
+      card.refs.photo.replaceChildren(img);
+    } else {
+      card.refs.photo.replaceChildren(el("span", { class: "none", text: "No photo yet" }));
+    }
+  }
+
+  function renderLook(card, entry) {
+    const look = entry.where_to_look;
+    const key = JSON.stringify(look || null);
+    if (key === card.lookKey) return;
+    card.lookKey = key;
+    const nodes = [];
+    if (look && (look.places || []).length) {
+      nodes.push(el("h3", { text: "Where to look" }));
+      const items = look.places.map((p, i) => {
+        const why = (p.why || []).map((w) => WHY_SAY[w]).filter(Boolean).join(", ");
+        const fill = el("i", { style: "width:" + Math.max(0, Math.min(100, p.pct)) + "%" });
+        return el("li", { class: i === 0 ? "first" : null },
+          el("div", { class: "row1" },
+            el("span", { text: placeText(p) }),
+            el("span", { class: "pct", text: p.pct + "%" })),
+          el("div", { class: "bar", "aria-hidden": "true" }, fill),
+          why ? el("div", { class: "why", text: cap(why) }) : null);
+      });
+      if (look.elsewhere_pct > 0) {
+        const fill = el("i", { style: "width:" + Math.max(0, Math.min(100, look.elsewhere_pct)) + "%" });
+        items.push(el("li", null,
+          el("div", { class: "row1" }, el("span", { text: "Somewhere else" }), el("span", { class: "pct", text: look.elsewhere_pct + "%" })),
+          el("div", { class: "bar else", "aria-hidden": "true" }, fill)));
+      }
+      nodes.push(el("ul", null, ...items));
+    }
+    if (look && look.ruled_out && look.ruled_out.landmark) {
+      nodes.push(el("p", { class: "gone", text: "No longer on " + look.ruled_out.landmark + "." }));
+    }
+    card.refs.look.replaceChildren(...nodes);
+  }
+
+  function renderCards(items) {
+    const box = $("cards");
+    $("cards-empty").classList.toggle("hidden", items.length > 0);
+    const seen = new Set();
+    items.forEach((entry, index) => {
+      seen.add(entry.item);
+      let card = state.cards.get(entry.item);
+      if (!card) {
+        card = makeCard(entry.item);
+        state.cards.set(entry.item, card);
+      }
+      const st = entry.result ? entry.result.state : null;
+      card.refs.title.textContent = entry.item;
+      card.refs.state.textContent = STATE_SAY[st] || "Not sure";
+      card.refs.state.className = "state" + (st === "never_seen" || !st ? " never" : st === "not_there_anymore" ? " moved" : "");
+      card.refs.sentence.textContent = entry.sentence || "";
+      renderPhoto(card, entry);
+      renderLook(card, entry);
+      if (box.children[index] !== card.root) box.insertBefore(card.root, box.children[index] || null);
+    });
+    for (const [name, card] of state.cards) {
+      if (!seen.has(name)) { card.root.remove(); state.cards.delete(name); }
+    }
+  }
+
+  // ---------------------------------------------------------------- History
+  async function loadTimeline() {
+    const rows = await api("GET", "/api/timeline?debug=" + ($("debug").checked ? "true" : "false"));
+    const list = $("timeline");
+    $("timeline-empty").classList.toggle("hidden", rows.length > 0);
+    list.replaceChildren(...rows.map((r) => {
+      const thumb = el("div", { class: "thumb" });
+      if (r.photo_url) {
+        const img = el("img", { alt: "", loading: "lazy", decoding: "async" });
+        img.src = r.photo_url;
+        thumb.append(img);
+      } else {
+        thumb.textContent = "No photo";
+      }
+      const place = r.in_hand ? "In hand" + (r.room ? ", in " + r.room : "")
+        : r.landmark ? placeText(r) : r.room ? "In " + r.room : "Somewhere in the home";
+      return el("li", { class: "hrow" },
+        thumb,
+        el("div", null,
+          el("div", { class: "what", text: r.item || "Unregistered object" }),
+          el("div", { class: "where", text: place })),
+        el("div", { class: "when" }, el("b", { text: cap(ago(r.last_seen_at)) }), localTime(r.last_seen_at)),
+        el("div", { class: "how", text: (EVENT_SAY[r.event_type] || r.event_type) + ". " + (STATUS_SAY[r.status] || r.status) + "." }));
+    }));
+  }
+
+  // ---------------------------------------------------------------- Patterns
+  function plainShare(share) {
+    if (share == null) return null;
+    const n = Math.round(share * 10);
+    return "about " + n + " time" + (n === 1 ? "" : "s") + " in 10";
+  }
+
+  function round1(x) {
+    return Math.round(x * 10) / 10;
+  }
+
+  /** A clean axis top: 1, 2, 5 times a power of ten, at or above the largest value. */
+  function niceMax(v) {
+    if (v <= 1) return 1;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const m of [1, 2, 5, 10]) if (m * p >= v) return m * p;
+    return 10 * p;
+  }
+
+  /** One series, one bar per day (dataviz skill: bars at most 24 px, 4 px rounded data-end, square
+   *  at the baseline, hairline solid gridlines, clean ticks, a hover tooltip per bar). */
+  function barChart(fig, title, desc, days, value, unit) {
+    const ns = "http://www.w3.org/2000/svg";
+    const width = Math.max(260, Math.round(fig.clientWidth || 700)); // 1 unit = 1 px: labels stay 16 px
+    const height = 200;
+    const pad = { l: 34, r: 4, t: 12, b: 30 };
+    const plotH = height - pad.t - pad.b;
+    const values = days.map(value);
+    const top = niceMax(Math.max(...values, 0));
+    const step = (width - pad.l - pad.r) / Math.max(1, days.length);
+    const barW = Math.max(2, Math.min(24, step * 0.62));
+    const y = (v) => pad.t + plotH - (plotH * v) / top;
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.setAttribute("role", "img");
+    const id = fig.id + "-t";
+    svg.setAttribute("aria-labelledby", id + " " + id + "d");
+    const t = document.createElementNS(ns, "title");
+    t.id = id;
+    t.textContent = title;
+    const d = document.createElementNS(ns, "desc");
+    d.id = id + "d";
+    d.textContent = desc;
+    svg.append(t, d);
+    const ticks = [0, top / 2, top];
+    ticks.forEach((v) => {
+      const line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", pad.l);
+      line.setAttribute("x2", width - pad.r);
+      line.setAttribute("y1", y(v));
+      line.setAttribute("y2", y(v));
+      line.setAttribute("stroke", v === 0 ? "#a0a5b6" : "#e9ebee");
+      line.setAttribute("stroke-width", "1");
+      svg.append(line);
+      const label = document.createElementNS(ns, "text");
+      label.setAttribute("x", pad.l - 8);
+      label.setAttribute("y", y(v) + 5);
+      label.setAttribute("text-anchor", "end");
+      label.setAttribute("font-size", "15");
+      label.setAttribute("fill", "#464f63");
+      label.textContent = String(round1(v));
+      svg.append(label);
+    });
+    const tip = el("div", { class: "tip hidden", role: "status" });
+    values.forEach((v, i) => {
+      const cx = pad.l + i * step + step / 2;
+      if (v > 0) {
+        const h = Math.max(2, plotH * v / top);
+        const r = Math.min(4, barW / 2, h);
+        const x0 = cx - barW / 2;
+        const base = pad.t + plotH;
+        const bar = document.createElementNS(ns, "path");
+        bar.setAttribute("d", "M" + x0 + " " + base + " V" + (base - h + r) + " Q" + x0 + " " + (base - h) + " " + (x0 + r) + " " + (base - h)
+          + " H" + (x0 + barW - r) + " Q" + (x0 + barW) + " " + (base - h) + " " + (x0 + barW) + " " + (base - h + r) + " V" + base + " Z");
+        bar.setAttribute("fill", "#0078b3");
+        svg.append(bar);
+      }
+      const hit = document.createElementNS(ns, "rect"); // a hit target taller and wider than the bar
+      hit.setAttribute("x", pad.l + i * step);
+      hit.setAttribute("y", pad.t);
+      hit.setAttribute("width", step);
+      hit.setAttribute("height", plotH);
+      hit.setAttribute("fill", "transparent");
+      const say = shortDay(days[i].day) + ": " + round1(v) + " " + unit;
+      hit.addEventListener("pointerenter", () => {
+        const box = svg.getBoundingClientRect();
+        const home = fig.getBoundingClientRect();
+        const scale = box.width / width;
+        tip.textContent = say;
+        tip.style.left = box.left - home.left + cx * scale + "px";
+        tip.style.top = box.top - home.top + y(v) * scale - 8 + "px";
+        tip.classList.remove("hidden");
+      });
+      hit.addEventListener("pointerleave", () => tip.classList.add("hidden"));
+      svg.append(hit);
+    });
+    const marks = days.length > 1 ? [0, Math.round((days.length - 1) / 3), Math.round((2 * (days.length - 1)) / 3), days.length - 1] : [0];
+    const minGap = 64;
+    let lastX = -Infinity;
+    marks.forEach((i, n) => {
+      const x = pad.l + i * step + step / 2;
+      if (x - lastX < minGap && n !== marks.length - 1) return;
+      lastX = x;
+      const label = document.createElementNS(ns, "text");
+      label.setAttribute("x", Math.min(width - pad.r, Math.max(pad.l, x)));
+      label.setAttribute("y", height - 6);
+      label.setAttribute("font-size", "15");
+      label.setAttribute("fill", "#464f63");
+      label.setAttribute("text-anchor", n === 0 ? "start" : n === marks.length - 1 ? "end" : "middle");
+      label.textContent = shortDay(days[i].day);
+      svg.append(label);
+    });
+    fig.replaceChildren(el("figcaption", { text: title }), el("p", { class: "sub", text: desc }), svg, tip);
+  }
+
+  let chartWidth = 0;
+  window.addEventListener("resize", () => {
+    const w = $("chart-q").clientWidth;
+    if (state.patterns && w && Math.abs(w - chartWidth) > 24) drawCharts(state.patterns.days || []);
+  });
+
+  function drawCharts(days) {
+    chartWidth = $("chart-q").clientWidth;
+    const totalQ = days.reduce((a, d) => a + d.questions, 0);
+    const totalW = days.reduce((a, d) => a + d.worn_hours, 0);
+    barChart($("chart-q"), "Questions to Find It per day", totalQ + " questions over the last " + days.length + " days.",
+      days, (d) => d.questions, "questions");
+    barChart($("chart-w"), "Hours the camera was worn per day", round1(totalW) + " hours over the last " + days.length + " days.",
+      days, (d) => d.worn_hours, "hours");
+  }
+
+  async function loadPatterns() {
+    const p = await api("GET", "/api/patterns?days=28");
+    state.patterns = p;
+    const person = p.person || "your family member";
+    $("p-note").textContent = p.note || "";
+    $("p-status").textContent = p.status === "learning"
+      ? "Still learning " + possessive(person) + " routine: " + p.days_with_data + " of 28 days so far."
+      : "Each day compared with " + possessive(person) + " own usual.";
+    $("p-changes").replaceChildren(...(p.changes || []).map((c) => el("p", { class: "change", text: c.sentence })));
+    $("p-advice").textContent = p.advice || ((p.changes || []).length ? "" : "Nothing unusual to point out.");
+
+    const u = p.usual || {};
+    const usual = [
+      u.questions_per_day != null ? "Asks Find It about " + round1(u.questions_per_day) + " times a day." : null,
+      plainShare(u.asked_again_share) ? "Asks again soon after an answer " + plainShare(u.asked_again_share) + "." : null,
+      plainShare(u.found_share) ? "Finds the thing after asking " + plainShare(u.found_share) + "." : null,
+      u.worn_hours_per_day != null ? "Wears the camera about " + round1(u.worn_hours_per_day) + " hours a day." : null,
+    ].filter(Boolean);
+    $("p-usual").replaceChildren(...(usual.length ? usual : ["Not enough days yet. This fills in after a few days with the camera."]).map((t) => el("li", { text: t })));
+
+    const days = p.days || [];
+    drawCharts(days);
+    const head = el("tr", null, ...["Day", "Questions", "Asked again", "Found", "Camera hours", "Notes"].map((h) => el("th", { text: h, scope: "col" })));
+    const body = days.slice().reverse().map((d) => el("tr", null,
+      el("td", { text: shortDay(d.day) }), el("td", { text: d.questions }), el("td", { text: d.asked_again }),
+      el("td", { text: d.found + " of " + (d.found + d.not_found) }), el("td", { text: round1(d.worn_hours) }),
+      el("td", { text: (d.tags || []).map((t) => TAG_SAY[t] || t).join(", ") })));
+    $("p-table").replaceChildren(el("thead", null, head), el("tbody", null, ...body));
+
+    const odd = p.odd_places || [];
+    $("p-odd-empty").classList.toggle("hidden", odd.length > 0);
+    $("p-odd").replaceChildren(...odd.map((o) => el("li", { text: o.item + " on " + o.landmark + ", " + localTime(o.at) })));
+  }
+
+  // ---------------------------------------------------------------- Setup and the told form
+  function option(value, text, disabled) {
+    // Options cannot take CSS ::first-letter, so names (stored lower case) get their capital here.
+    const o = el("option", { value, text: cap(text) });
+    if (disabled) o.disabled = true;
+    return o;
+  }
+
+  /** "the table in the classroom": a place as people say it. */
+  function placeText(p) {
+    return p.landmark + (p.room ? " in " + p.room : "");
+  }
+
+  function countText(n, one, many) {
+    return n === 0 ? "None yet" : n + " " + (n === 1 ? one : many);
+  }
+
+  async function loadSetup() {
+    try {
+      state.setup = await api("GET", "/api/setup");
+    } catch (err) {
+      if (err instanceof Unauthorized) return signOut("Type the family code again.");
+      return;
+    }
+    const s = state.setup;
+    const rooms = s.rooms || [];
+    const places = s.places || [];
+    const items = s.items || [];
+
+    const keep = (select, build) => {
+      const before = select.value;
+      select.replaceChildren(...build());
+      if ([...select.options].some((o) => o.value === before && !o.disabled)) select.value = before;
+    };
+    keep($("item-home"), () => [option("", "No usual place"), ...places.map((p) => option(p.landmark_id, placeText(p)))]);
+    keep($("place-room"), () => [option("", "Choose a room", true),
+      ...rooms.map((r) => option(r.id, (r.spoken_name || r.name) + (r.capture_allowed ? "" : " (camera off)"), !r.capture_allowed))]);
+    if (!$("place-room").value) $("place-room").selectedIndex = 0;
+    keep($("told-item"), () => items.map((i) => option(i.name, i.name)));
+    keep($("told-place"), () => places.map((p) => option(p.landmark_id, placeText(p))));
+
+    $("count-items").textContent = countText(items.length, "thing", "things");
+    $("count-rooms").textContent = countText(rooms.length, "room", "rooms");
+    $("count-places").textContent = countText(places.length, "place", "places");
+    $("list-items").replaceChildren(...items.map((i) => el("li", null,
+      el("span", { class: "t", text: i.name }),
+      i.aliases && i.aliases.length ? el("span", { class: "s", text: "Also: " + i.aliases.join(", ") }) : null)));
+    $("list-rooms").replaceChildren(...rooms.map((r) => el("li", null,
+      el("span", { class: "t", text: r.spoken_name || r.name }),
+      el("span", { class: "s", text: r.capture_allowed ? "Camera records here" : "Private: the camera never saves anything here" }))));
+    $("list-places").replaceChildren(...places.map((p) => el("li", null,
+      el("span", { class: "t", text: p.landmark }),
+      el("span", { class: "s", text: cap(p.room) }))));
+  }
+
+  async function openTold(itemName) {
+    const dialog = $("told-dialog");
+    setMsg($("told-form"), "");
+    await loadSetup();
+    if (itemName) $("told-item").value = itemName;
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+    $("told-item").focus();
+  }
+
+  function closeTold() {
+    const dialog = $("told-dialog");
+    if (typeof dialog.close === "function") dialog.close();
+    else dialog.removeAttribute("open");
+  }
+
+  function wireAdders() {
+    document.querySelectorAll("[data-adder]").forEach((btn) => {
+      const box = $(btn.dataset.adder);
+      const label = btn.textContent;
+      btn.addEventListener("click", () => {
+        const open = box.hidden;
+        box.hidden = !open;
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        btn.textContent = open ? "Close" : label;
+        if (open) {
+          const first = box.querySelector("input, select");
+          if (first) first.focus();
+        }
+      });
+    });
+  }
+
+  function wireForms() {
+    $("gate-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const token = $("gate-token").value.trim();
+      if (token) signIn(token);
+    });
+    $("signout").addEventListener("click", () => signOut(""));
+    document.querySelectorAll("nav.tabs button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.tab)));
+    document.querySelector("nav.tabs").addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      const tabs = ["now", "history", "patterns", "setup"];
+      const next = tabs[(tabs.indexOf(state.tab) + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+      selectTab(next);
+      $("tab-" + next).focus();
+    });
+    $("debug").addEventListener("change", () => poll("timeline", loadTimeline));
+    $("open-told").addEventListener("click", () => openTold(null));
+    $("told-close").addEventListener("click", closeTold);
+    wireAdders();
+
+    $("told-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      submitting(form, async () => {
+        const note = $("told-note").value.trim();
+        const out = await api("POST", "/api/told", {
+          item: $("told-item").value,
+          landmark_id: $("told-place").value,
+          note: note || null,
+        });
+        $("told-note").value = "";
+        setMsg(form, "Find It now knows. It will say: “" + out.sentence + "”", "good");
+        poll("board", () => api("GET", "/api/board").then(renderBoard));
+      });
+    });
+
+    $("item-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      submitting(form, async () => {
+        const text = (id) => $(id).value.trim() || null;
+        const aliases = ($("item-aliases").value || "").split(",").map((a) => a.trim()).filter(Boolean);
+        const item = await api("POST", "/api/items", {
+          name: $("item-name").value.trim(),
+          color: text("item-color"),
+          description: text("item-desc"),
+          aliases,
+          kind: text("item-kind"),
+          plural: $("item-plural").checked,
+          home_landmark_id: $("item-home").value || null,
+        });
+        form.reset();
+        setMsg(form, "Thing added: " + item.name + ". The camera starts looking for it within 30 seconds.", "good");
+        await loadSetup();
+      });
+    });
+
+    $("room-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      const chosen = form.querySelector("input[name=room-capture]:checked");
+      if (!$("room-name").value.trim()) return setMsg(form, "Type a name for the room, then add it.", "err");
+      if (!chosen) return setMsg(form, "Choose Yes or No for the camera in this room, then add it.", "err");
+      submitting(form, async () => {
+        const room = await api("POST", "/api/rooms", {
+          name: $("room-name").value.trim(),
+          spoken_name: $("room-spoken").value.trim() || null,
+          capture_allowed: chosen.value === "yes",
+        });
+        form.reset();
+        setMsg(form, "Room added: " + (room.spoken_name || room.name) + "."
+          + (room.capture_allowed ? " Add the places in it next." : " Nothing will ever be saved from this room."), "good");
+        await loadSetup();
+      });
+    });
+
+    $("place-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      if (!$("place-room").value) return setMsg(form, "Choose the room this place is in, then add it.", "err");
+      submitting(form, async () => {
+        const place = await api("POST", "/api/landmarks", {
+          room_id: $("place-room").value,
+          name: $("place-name").value.trim(),
+          spoken_name: $("place-spoken").value.trim() || null,
+          kind: $("place-kind").value,
+        });
+        const room = $("place-room").value;
+        form.reset();
+        $("place-room").value = room;
+        setMsg(form, "Place added: " + (place.spoken_name || place.landmark || place.name || "the place") + ". The camera knows it within 30 seconds.", "good");
+        await loadSetup();
+      });
+    });
+
+    const kinds = $("event-kind");
+    kinds.replaceChildren(...Object.entries(TAG_SAY).map(([k, v]) => option(k, v)));
+    const today = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    $("event-date").value = today.getFullYear() + "-" + pad(today.getMonth() + 1) + "-" + pad(today.getDate());
+    $("event-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      submitting(form, async () => {
+        const day = $("event-date").value;
+        const starts = new Date(day + "T12:00:00");
+        await api("POST", "/api/events", {
+          kind: kinds.value,
+          starts_at: starts.toISOString(),
+          note: $("event-note").value.trim() || null,
+        });
+        $("event-note").value = "";
+        setMsg(form, "Change saved. The patterns take it into account.", "good");
+        poll("patterns", loadPatterns);
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------- start
+  wireForms();
+  const saved = store("get");
+  if (saved) signIn(saved);
+  else showGate("");
+})();
+</script>
+</body>
+</html>

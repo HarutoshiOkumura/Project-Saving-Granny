@@ -1,16 +1,18 @@
 """FastAPI app and routes only. Handlers stay thin: parse, call one function, return."""
 
 import logging
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import AwareDatetime, BaseModel
 
-from app import insights
+from app import family, insights
 from app.ask import Answer, Known, ask, snapshot
 from app.auth import has_app_token, require_app_token
-from app.memory.schema import Channel, Concern, LifeEvent
+from app.memory.schema import Channel, Concern, Item, LifeEvent, Room, SetupPlace
 from app.patterns import Patterns
 from app.worker.ingest import ingest
 
@@ -109,3 +111,76 @@ async def list_events(days: Annotated[int, Query(ge=1, le=365)] = 56) -> list[Li
 async def patterns(days: Annotated[int, Query(ge=7, le=182)] = 56) -> Patterns:
     """Daily facts and any change from the person's own usual. Not a medical test."""
     return await insights.patterns(days)
+
+
+# ---------------------------------------------------------------------------------------------
+# Family dashboard (step 08, docs/DASHBOARD.md "Dashboard API"). The page has no secrets; every
+# /api call needs the APP_TOKEN, which the family types in once.
+# ---------------------------------------------------------------------------------------------
+
+DASHBOARD_HTML = Path(__file__).parent / "web" / "dashboard.html"
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard() -> FileResponse:
+    return FileResponse(
+        DASHBOARD_HTML, media_type="text/html", headers={"Cache-Control": "no-cache"}
+    )
+
+
+@app.get("/api/board", dependencies=token)
+async def board() -> family.Board:
+    return await family.board()
+
+
+@app.get("/api/timeline", dependencies=token)
+async def timeline(debug: bool = False) -> list[family.TimelineEntry]:
+    return await family.history(include_glimpses=debug)
+
+
+@app.get("/api/setup", dependencies=token)
+async def setup() -> family.Setup:
+    return await family.setup()
+
+
+@app.get("/api/places", dependencies=token)
+async def places() -> list[SetupPlace]:
+    return (await family.setup()).places
+
+
+@app.post("/api/told", dependencies=token)
+async def told(body: family.ToldIn) -> family.ToldOut:
+    try:
+        return await family.told(body)
+    except LookupError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/items", status_code=201, dependencies=token)
+async def add_item(body: family.ItemIn) -> Item:
+    try:
+        return await family.add_item(body)
+    except family.NameTaken as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/rooms", status_code=201, dependencies=token)
+async def add_room(body: family.RoomIn) -> Room:
+    try:
+        return await family.add_room(body)
+    except family.NameTaken as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/landmarks", status_code=201, dependencies=token)
+async def add_landmark(body: family.LandmarkIn) -> SetupPlace:
+    try:
+        return await family.add_landmark(body)
+    except family.NameTaken as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except family.NotAllowed as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(422, str(exc)) from exc
