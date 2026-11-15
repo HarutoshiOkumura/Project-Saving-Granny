@@ -236,8 +236,8 @@ Default: Gemini (`gemini-3.5-flash`, billing-enabled key). Without a key, skip N
 
 ## After the core demo passes
 
-**D25. A room scan: 3D view (A) and room recognition from the scan (C).** A BUILT (Tom, 15 Nov), C OPEN (the team, 14 Nov: maybe, as an afterthought)
-A as built differs from the plan below: the scan is a Gaussian splat made in seconds by AnySplat on a rented GPU from a phone video (`scripts/build_room.py`), shown at `GET /room` with Spark, and the pins are placed by tapping in the 3D view. `docs/SPLAT.md` has it all; the text below is the original plan.
+**D25. A room scan: 3D view (A) and room recognition from the scan (C).** OPEN (the team, 14 Nov: maybe, as an afterthought)
+A was built on 15 Nov as a Gaussian splat (AnySplat on a rented GPU, shown at `GET /room`) and shelved the same night: on a real room it was too grainy and did not hold together (Tom). It is on the branch `tom/splat` with its own `docs/SPLAT.md`; nothing of it is on `main`.
 The judges liked the point cloud idea on 14 Nov.
 Start only after CP3 and CP4 pass (cut item 1 in `PLAN.md`, and the out-of-scope list in `CLAUDE.md`); until then, finish the original plan.
 Optional now: record the scan video while the staged table and chair are set up; it takes ten minutes and touches no code.

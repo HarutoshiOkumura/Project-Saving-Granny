@@ -11,8 +11,6 @@ for "where to look" in the snapshot, D33). `find_item` is the read that logs no 
 Photos are read with `download_photo` (the bytes, for the card the backend draws) and
 `sign_photos` (links that work for an hour, for the snapshot); a storage path never leaves the
 backend.
-`list_pins` reads where each landmark is in the room's 3D scan, and `set_pin` is the one write
-the room view makes: `landmarks.x/y/z` (D25 A), never a sighting.
 """
 
 import asyncio
@@ -45,7 +43,6 @@ from app.memory.schema import (
     Moment,
     PatternRows,
     PerceptionContext,
-    Pin,
     PlaceName,
     Urgency,
     UsualPlace,
@@ -182,54 +179,6 @@ async def download_photo(path: str) -> bytes | None:
             return await client.storage.from_(bucket).download(key)
         except StorageApiError:
             return None
-
-
-async def list_pins() -> list[Pin]:
-    """Every landmark of this home's capture-allowed rooms with its spoken name and its pin in
-    the room's 3D scan (None until placed), by address. Read-only, for `GET /room/scene`."""
-    home = _home()
-    async with asyncio.timeout(READ_TIMEOUT_S):
-        client = await _get_client()
-        places = await (
-            client.table("places")
-            .select("landmark_id,address,landmark_spoken")
-            .eq("home_id", home)
-            .eq("capture_allowed", True)
-            .order("address")
-            .execute()
-        )
-        ids = [row["landmark_id"] for row in places.data]
-        spots = (
-            await client.table("landmarks").select("id,x,y,z").in_("id", ids).execute()
-            if ids
-            else None
-        )
-    by_id = {row["id"]: row for row in (spots.data if spots else [])}
-    return [
-        Pin.model_validate(
-            {
-                "landmark_id": row["landmark_id"],
-                "address": row["address"],
-                "spoken": row["landmark_spoken"],
-                **{axis: by_id.get(row["landmark_id"], {}).get(axis) for axis in ("x", "y", "z")},
-            }
-        )
-        for row in places.data
-    ]
-
-
-async def set_pin(landmark_id: UUID, position: tuple[float, float, float] | None) -> None:
-    """Store (or with None, clear) one landmark's place in the room's 3D scan. The caller takes
-    `landmark_id` from `list_pins`, so it is always a landmark of this home."""
-    x, y, z = position if position is not None else (None, None, None)
-    async with asyncio.timeout(WRITE_TIMEOUT_S):
-        client = await _get_client()
-        await (
-            client.table("landmarks")
-            .update({"x": x, "y": y, "z": z})
-            .eq("id", str(landmark_id))
-            .execute()
-        )
 
 
 async def look_evidence(item_ids: list[UUID], glimpses_since: datetime) -> LookEvidence:

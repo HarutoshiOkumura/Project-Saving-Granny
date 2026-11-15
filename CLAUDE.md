@@ -18,7 +18,6 @@ Read these when a step touches them, not before:
 - `docs/TYPESENSE.md`: search layer, exact API syntax, prize criteria
 - `docs/DASHBOARD.md`: GUI and voice accessibility constants, pages, privacy
 - `docs/SPONSORS.md`: prizes, judging, Coder, Gemini, pitch facts
-- `docs/SPLAT.md`: the room's 3D scan: the splat builder on the GPU machine, `GET /room`, pins, privacy
 - `docs/CODER.md`: working in a Coder workspace (`$CODER` is `true`): setup script, no Docker, no public ports, only `/home/coder` persists
 
 ## Architecture
@@ -36,8 +35,6 @@ caller -> FaceTime -> Chert -> LiveKit agent -> ask_item() -> speak() + last-see
           a thing described, not named -> GET /describe -> Typesense moments -> the item -> ask_item()
           the photo on the card        -> GET /moments/{sighting}/photo (after the answer, never before)
 family -> GET /dashboard -> GET /api/timeline
-family -> GET /room -> the room's 3D scan + landmark pins + where the memory says each item is now
-          (the scan is built once by scripts/build_room.py on a rented GPU; docs/SPLAT.md)
 ```
 
 Two rules shape everything:
@@ -62,7 +59,6 @@ app/insights.py          the insights endpoints' work: concerns, family tags, pa
 app/names.py             Typesense: spoken words -> item name before ask_item (optional, 300 ms, falls back)
 app/moments.py           Typesense `moments`: a description -> the item it means (/describe); the card photo; the search copy
 app/photo.py             the moment photo (a wider crop around the item, never the full frame) and the FaceTime card picture
-app/room.py              the room's 3D scan for GET /room: the saved splat, landmark pins (landmarks.x/y/z), items from the snapshot
 app/voice/vapi.py        Vapi tool webhook
 app/perception/schema.py Pydantic models for the perception result, boxes, the Gemini JSON schema
 app/perception/detector.py  Roboflow calls (SAM 3, the gate and crop boxes)
@@ -73,10 +69,9 @@ app/perception/retry.py  timeout and retries for every model call
 app/perception/filters.py   blur and duplicate checks
 app/worker/ingest.py     frame -> filters -> perception -> drop rules -> database (POST /frames)
 app/worker/wear.py       wear time: frames and moving frames per device-minute (counts only)
-app/web/                 capture.html, dashboard.html (static, no build step); room.html and vendor/ (three.js, Spark) for GET /room
+app/web/                 capture.html, dashboard.html (static, no build step)
 agent/                   LiveKit agent for the Chert FaceTime line (separate process)
-splat/                   the splat builder for a GPU machine (separate process, Python 3.10): AnySplat -> .spz; numpy helpers shared with the backend
-scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py, sync_moments.py, coder_setup.sh, build_room.py, splat_gpu.sh
+scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py, sync_moments.py, coder_setup.sh
 tests/                   pytest; tests/fixtures/frames/ holds staged frames
 supabase/migrations/     0001, 0002 and 0005_insights.sql (applied; frozen); 0003 (not applied)
 supabase/tests/          test_memory.sql, test_ranking.sql (0003), test_insights.sql (0005); scratch only

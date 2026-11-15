@@ -25,27 +25,6 @@ class Item(BaseModel):
     home_landmark_id: UUID | None = None  # where the family says it belongs
 
 
-class Pin(BaseModel):
-    """One landmark and where it is in the room's 3D scan (`db.list_pins`). `x`, `y`, `z` are
-    `landmarks.x/y/z` in the scan's level viewer axes (`splat/geometry.py`); None until someone
-    has placed the pin (D25 A)."""
-
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    landmark_id: UUID
-    address: str  # "room > landmark", as `find_item` returns it
-    spoken: str  # "the table"
-    x: float | None = None
-    y: float | None = None
-    z: float | None = None
-
-    @property
-    def position(self) -> tuple[float, float, float] | None:
-        if self.x is None or self.y is None or self.z is None:
-            return None
-        return (self.x, self.y, self.z)
-
-
 class Moment(BaseModel):
     """One stay of an item at a place, with the words a search needs (`db.list_moments`).
 

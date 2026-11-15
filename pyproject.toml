@@ -19,8 +19,6 @@ dependencies = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# splat/ also runs on the GPU machine in AnySplat's Python 3.10 environment (docs/SPLAT.md).
-per-file-target-version = { "splat/**" = "py310" }
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
