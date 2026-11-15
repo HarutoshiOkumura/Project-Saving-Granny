@@ -12,7 +12,7 @@ Already done on 14 Nov: `.gitignore`, `.env.example`, `.env` (Supabase values fi
 ## Build
 
 1. `pyproject.toml` for uv with `requires-python = ">=3.12,<3.13"`.
-   Runtime dependencies: `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `supabase`, `anthropic`, `httpx`, `python-multipart`.
+   Runtime dependencies: `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `supabase`, `google-genai`, `httpx`, `python-multipart`.
    Dev dependencies: `pytest`, `ruff`.
    Add perception libraries (OpenCV, scikit-image, the Roboflow SDK) in the steps that use them, not now.
    Let `uv add` pick current versions, and commit `uv.lock`.

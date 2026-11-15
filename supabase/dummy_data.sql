@@ -8,12 +8,15 @@
 -- It refuses to run once the real camera pipeline has written anything (an observation from any
 -- device other than 'dummy'). Safe to run again; each run starts from a clean log.
 --
--- Afterwards find_item gives:
---   glasses   seen               on the kitchen counter, about 40 minutes ago; previous: the nightstand
---   keys      carried            in hand in the hallway 12 minutes ago; wearer_went_to: your bedroom
---   bag       not_there_anymore  last on the bedroom desk 2 hours ago, seen empty 3 times since;
---                                usual is null (the bag has no home landmark, and the desk is ruled out)
---   umbrella  unknown_item       (any word that is not an item name or alias)
+-- Afterwards find_item gives (the B School classroom home in seed.sql):
+--   glasses       seen               on the chair, about 40 minutes ago; previous: the table
+--   keys          carried            in hand in the classroom 12 minutes ago; wearer_went_to is null
+--                                    (the only other room is the no-capture bathroom)
+--   bag           not_there_anymore  last on the floor 2 hours ago, seen empty 3 times since;
+--                                    usual is null (the bag has no home landmark)
+--   water bottle  seen, not confident  next to the table 5 minutes ago ("I think I saw ...")
+--   watch         never_seen         no sighting at all
+--   umbrella      unknown_item       (any word that is not an item name or alias)
 --   never_seen is what every item says after the rehearsal reset, before any sighting.
 -- photo is null everywhere (see the last rule below).
 --
@@ -42,17 +45,16 @@ declare
   glasses    uuid := (select id from items where home_id = h and name = 'glasses');
   keys       uuid := (select id from items where home_id = h and name = 'keys');
   bag        uuid := (select id from items where home_id = h and name = 'bag');
-  nightstand uuid := (select landmark_id from places where home_id = h and landmark = 'nightstand');
-  counter    uuid := (select landmark_id from places where home_id = h and landmark = 'counter');
-  key_hook   uuid := (select landmark_id from places where home_id = h and landmark = 'key hook');
-  desk       uuid := (select landmark_id from places where home_id = h and landmark = 'desk');
-  hallway    uuid := (select id from rooms where home_id = h and name = 'hallway');
-  bedroom    uuid := (select id from rooms where home_id = h and name = 'bedroom');
+  bottle     uuid := (select id from items where home_id = h and name = 'water bottle');
+  tbl        uuid := (select landmark_id from places where home_id = h and landmark = 'table');
+  chair      uuid := (select landmark_id from places where home_id = h and landmark = 'chair');
+  floor_     uuid := (select landmark_id from places where home_id = h and landmark = 'floor');
+  classroom  uuid := (select id from rooms where home_id = h and name = 'b_school_classroom');
 begin
   if exists (select 1 from observations where home_id = h and device_id <> 'dummy') then
     raise exception 'real camera data exists (observations from a device other than ''dummy''); not overwriting it. Run the rehearsal reset by hand if you really mean to.';
   end if;
-  if num_nonnulls(glasses, keys, bag, nightstand, counter, key_hook, desk, hallway, bedroom) < 9 then
+  if num_nonnulls(glasses, keys, bag, bottle, tbl, chair, floor_, classroom) < 8 then
     raise exception 'the demo home is not seeded as supabase/seed.sql expects; run seed.sql first';
   end if;
 
@@ -60,28 +62,32 @@ begin
   delete from sightings    where home_id = h;
   delete from observations where home_id = h;
 
-  -- glasses: on the nightstand 3 hours ago, then on the kitchen counter 40 minutes ago.
+  -- glasses: on the table (their usual place) 3 hours ago, then on the chair 40 minutes ago.
   -- Two frames 2 seconds apart make each stay active; the newer stay supersedes the older one.
-  perform log_sighting(h, glasses, 'glasses', null, nightstand, 'on', false, t - interval '3 hours', 0.9, 0.9, 1.0);
-  perform log_sighting(h, glasses, 'glasses', null, nightstand, 'on', false, t - interval '3 hours' + interval '2 seconds', 0.9, 0.9, 1.0);
-  perform log_sighting(h, glasses, 'glasses', null, counter, 'on', false, t - interval '40 minutes', 0.9, 0.9, 1.0);
-  perform log_sighting(h, glasses, 'glasses', null, counter, 'on', false, t - interval '40 minutes' + interval '2 seconds', 0.9, 0.9, 1.0);
+  perform log_sighting(h, glasses, 'glasses', null, tbl, 'on', false, t - interval '3 hours', 0.9, 0.9, 1.0);
+  perform log_sighting(h, glasses, 'glasses', null, tbl, 'on', false, t - interval '3 hours' + interval '2 seconds', 0.9, 0.9, 1.0);
+  perform log_sighting(h, glasses, 'glasses', null, chair, 'on', false, t - interval '40 minutes', 0.9, 0.9, 1.0);
+  perform log_sighting(h, glasses, 'glasses', null, chair, 'on', false, t - interval '40 minutes' + interval '2 seconds', 0.9, 0.9, 1.0);
 
-  -- keys: on the key hook 5 hours ago, then in hand in the hallway 12 minutes ago
-  -- (room only, no landmark), then the wearer walked into the bedroom.
-  perform log_sighting(h, keys, 'keys', null, key_hook, 'on', false, t - interval '5 hours', 0.9, 0.9, 1.0);
-  perform log_sighting(h, keys, 'keys', null, key_hook, 'on', false, t - interval '5 hours' + interval '2 seconds', 0.9, 0.9, 1.0);
-  perform log_sighting(h, keys, 'keys', hallway, null, 'unknown', true, t - interval '12 minutes', 0.9, 0.9, 1.0);
-  perform log_sighting(h, keys, 'keys', hallway, null, 'unknown', true, t - interval '12 minutes' + interval '2 seconds', 0.9, 0.9, 1.0);
-  insert into observations (home_id, device_id, captured_at, room_id, room_conf, idempotency_key)
-  values (h, 'dummy', t - interval '8 minutes', bedroom, 0.9, 'dummy:bedroom');
+  -- keys: on the table 5 hours ago, then in hand in the classroom 12 minutes ago (room only).
+  perform log_sighting(h, keys, 'keys', null, tbl, 'on', false, t - interval '5 hours', 0.9, 0.9, 1.0);
+  perform log_sighting(h, keys, 'keys', null, tbl, 'on', false, t - interval '5 hours' + interval '2 seconds', 0.9, 0.9, 1.0);
+  perform log_sighting(h, keys, 'keys', classroom, null, 'unknown', true, t - interval '12 minutes', 0.9, 0.9, 1.0);
+  perform log_sighting(h, keys, 'keys', classroom, null, 'unknown', true, t - interval '12 minutes' + interval '2 seconds', 0.9, 0.9, 1.0);
 
-  -- bag: on the bedroom desk 2 hours ago, then the desk was seen empty three times, a minute apart.
-  perform log_sighting(h, bag, 'bag', null, desk, 'on', false, t - interval '2 hours', 0.9, 0.9, 1.0);
-  perform log_sighting(h, bag, 'bag', null, desk, 'on', false, t - interval '2 hours' + interval '2 seconds', 0.9, 0.9, 1.0);
-  perform mark_absent(h, desk, t - interval '30 minutes', '{}');
-  perform mark_absent(h, desk, t - interval '29 minutes', '{}');
-  perform mark_absent(h, desk, t - interval '28 minutes', '{}');
+  -- bag: on the floor 2 hours ago, then the floor was seen empty three times, a minute apart.
+  perform log_sighting(h, bag, 'bag', null, floor_, 'on', false, t - interval '2 hours', 0.9, 0.9, 1.0);
+  perform log_sighting(h, bag, 'bag', null, floor_, 'on', false, t - interval '2 hours' + interval '2 seconds', 0.9, 0.9, 1.0);
+  perform mark_absent(h, floor_, t - interval '30 minutes', '{}');
+  perform mark_absent(h, floor_, t - interval '29 minutes', '{}');
+  perform mark_absent(h, floor_, t - interval '28 minutes', '{}');
+
+  -- water bottle: next to the table 5 minutes ago, with a weak detection (0.5 x 0.9 x 1.0 is under
+  -- the 0.5 cut), so find_item says confident = false and the voice starts with "I think".
+  perform log_sighting(h, bottle, 'water bottle', null, tbl, 'next_to', false, t - interval '5 minutes', 0.5, 0.9, 1.0);
+  perform log_sighting(h, bottle, 'water bottle', null, tbl, 'next_to', false, t - interval '5 minutes' + interval '2 seconds', 0.5, 0.9, 1.0);
+
+  -- watch: nothing, so it stays never_seen.
 end $$;
 
 -- what the read path now answers

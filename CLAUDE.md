@@ -21,7 +21,7 @@ WRITE PATH (slow, may fail softly)
 phone camera page --JPEG every 1-2 s--> POST /frames
    -> filters (blur, duplicate) -> perceive() -> log_sighting() / mark_absent() -> Supabase
                                    |-- Roboflow detector: boxes and crops
-                                   |-- Claude Haiku: room, landmark, relation, in_hand as strict JSON
+                                   |-- Gemini Flash: room, landmark, relation, in_hand as strict JSON
 
 READ PATH (fast, must never fail)
 caller -> Vapi phone number -> POST /vapi/tool -> ask_item() -> speak() -> one sentence
@@ -46,7 +46,7 @@ app/ask.py               one question: ask_item, speak(), 2 s timeout, fallback,
 app/voice/vapi.py        Vapi tool webhook
 app/perception/schema.py Pydantic models for the perception result
 app/perception/detector.py  Roboflow calls
-app/perception/vlm.py    Claude call with a JSON schema
+app/perception/vlm.py    Gemini call with a JSON schema
 app/perception/filters.py   blur and duplicate checks
 app/worker/ingest.py     frame -> perception -> database
 app/web/                 capture.html, dashboard.html (static, no build step)
@@ -115,6 +115,7 @@ The model may only answer with names from the lists (use JSON-schema enums built
 ## Hard rules
 
 - **Never upload images of a real home or real person to Roboflow.** The workspace is on the Research plan, so everything in it is public. Staged photos of our own objects only.
+- **Real camera frames go to Gemini only from a billing-enabled Google project with AI Studio logging turned off, and every call passes `store=False`.** On the free tier Google may use inputs, images included, to improve its products, with human review; on paid projects logging is on by default and keeps requests 55 days; the Interactions API also stores each request unless told not to (D24). Staged test photos are fine on the free tier.
 - **Never store a full frame.** Store a tight crop of the item, in the private `crops` bucket, and sign URLs at read time.
 - **Never write anything for a room with `capture_allowed = false`.** If perception says the room is one, drop the frame: no crop, no row.
 - **Never commit secrets.** Keys live in `.env` (gitignored). The Supabase secret key (`SUPABASE_SECRET_KEY`, `sb_secret_...`, which replaces the legacy service-role key) is backend-only and must never appear in `app/web/`.
@@ -143,7 +144,7 @@ Verify against the doc before coding. Use these model ids exactly.
 |---|---|---|
 | Supabase | Postgres + pgvector, storage, RPC | `docs/SUPABASE.md` |
 | Roboflow | Detector: YOLO-World, SAM 3 or our trained model; optional CLIP ViT-L/14 embeddings (768 numbers) | `docs/ROBOFLOW.md`, https://docs.roboflow.com/llms.txt |
-| Claude API | Frame understanding. Model `claude-haiku-5-5`; step up to `claude-sonnet-5-5` only if the bake-off says so. JSON via `output_config.format` with `type: "json_schema"` | https://platform.claude.com/docs/en/build-with-claude/structured-outputs.md and `.../vision.md` |
+| Gemini API | Frame understanding (D24). Model `gemini-3.6-flash`; the bake-off also tries `gemini-3.5-flash-lite` (faster) and `gemini-4-hydrogen` (step-up). Interactions API (`client.aio.interactions.create`, package `google-genai`) with a JSON schema in `response_format` and `store=False` | https://aistudio.google.com/docs/structured-output, `.../image-understanding`, `.../interactions`, `.../thinking`, `.../media-resolution` |
 | Vapi | Inbound phone number, one function tool | https://docs.vapi.ai/tools/custom-tools.md |
 | Chert + LiveKit | FaceTime line bridged to a LiveKit agent | https://docs.trychert.com/llms.txt, https://docs.livekit.io/agents/ |
 | Typesense | Typo and synonym matching of item names (optional) | https://typesense.org/docs/ |

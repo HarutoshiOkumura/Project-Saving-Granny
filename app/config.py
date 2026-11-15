@@ -48,9 +48,10 @@ class Settings(BaseSettings):
     public_base_url: Url | None = None
     app_token: SecretStr | None = None
 
-    # Claude API (step 05)
-    anthropic_api_key: SecretStr | None = None
-    perception_model: str = "claude-haiku-5-5"
+    # Gemini API (steps 04 and 05, D24). The Google SDK would also read GOOGLE_API_KEY by itself;
+    # we pass it explicitly so tests and scripts see only these settings.
+    google_api_key: SecretStr | None = None
+    perception_model: str = "gemini-3.6-flash"
 
     # Roboflow (steps 04 and 05)
     roboflow_api_key: SecretStr | None = None

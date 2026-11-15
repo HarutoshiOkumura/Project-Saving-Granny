@@ -19,16 +19,21 @@ These load when you work on perception, the ingest worker, the bake-off or the r
 - Rooms: every room name plus `"unknown"`.
 - Landmarks: addresses such as `"kitchen > counter"` plus `"none"`, so a landmark also fixes its room and names never collide across rooms.
 - Items: item names.
-- Sort every enum and build the schema deterministically. Claude compiles each new schema once and caches it for 24 hours, so a schema that changes every frame pays that cost every frame. One schema per room context is fine; never put beliefs or timestamps in the schema.
-- The API does not enforce numeric minimum and maximum, so clamp confidences to 0..1 in Pydantic.
+- Sort every enum and build the schema deterministically, so one room context always gives the same schema. Never put beliefs or timestamps in the schema.
+- Gemini's schema subset supports `enum`, `required`, `additionalProperties`, `minimum` and `maximum`, and ignores `minLength`, `maxLength` and `uniqueItems`. Clamp confidences to 0..1 in Pydantic anyway.
 
-## Claude call
+## Gemini call
 
-- Model from settings, default `claude-haiku-5-5`. Step up to `claude-sonnet-5-5` only if the bake-off says so.
-- JSON via `output_config.format` with `type: "json_schema"`. Verify the request shape against the structured outputs and vision docs linked in `CLAUDE.md` before coding.
-- Set `output_config.effort` explicitly. Start at `low`; Haiku 5.5 defaults to `medium`. Try thinking disabled for latency if quality holds (allowed at effort `high` or below).
-- Do not send `temperature`, `top_p` or `top_k`. Do not prefill.
-- Timeout 8 s, at most 3 retries with backoff, then skip the frame. Treat `stop_reason` `refusal` or `max_tokens` as a skipped frame.
+- Model from settings (`PERCEPTION_MODEL`), default `gemini-3.6-flash` (D24). The step 04 bake-off also tries `gemini-3.5-flash-lite` (faster, weaker) and `gemini-4-hydrogen` (the step-up: best boxes in Roboflow's evals); keep whichever it says. `gemini-3.8-flash` did not answer on our key on 14 Nov; retry it once in step 04 and use it only if it answers.
+- Use the Interactions API from `google-genai`: `client.aio.interactions.create(model=..., input=[...], response_format=..., generation_config=..., store=False, timeout=...)`, and read `output_text`. `generateContent` is legacy; do not use it. Verify the request shape against the docs linked in `CLAUDE.md` before coding.
+- Checked with a live text-only call on 14 Nov: `response_format={"type": "text", "mime_type": "application/json", "schema": ...}` returned `status` `completed` and JSON inside the enum. Confirm the image part with one live call in step 04.
+- Always pass `store=False`. By default the API stores every interaction (1 day on the free tier, 55 days on paid). Real frames only from a billing-enabled project with AI Studio logging off (hard rule in `CLAUDE.md`).
+- Input: the text prompt first, then the image (the image doc's order for a single image), as inline base64 JPEG with `mime_type` `image/jpeg`. Apply the photo's EXIF rotation first; phone-camera fixture photos carry it.
+- Set `generation_config.thinking_level` explicitly. Start at `low`: on/in/under judgments need some reasoning. The bake-off compares `minimal` (faster) against `low`; drop to `minimal` only if relations hold. Thinking tokens are billed and count against the output limit.
+- Image resolution: Gemini 3 spends 1,120 tokens per image by default (`high`). Keep that for small items like keys and glasses; try `medium` (560) in the bake-off for latency.
+- Leave sampling settings (temperature and the like) at their defaults.
+- Timeout 15 s (a numeric `timeout` bounds the whole call), at most 3 retries with backoff, then skip the frame. Roboflow's evals timed Flash at about 7 s per image at low effort, so the worker must process frames concurrently, never one after another. Tighten the timeout to what step 04 measures. Treat any `status` other than `completed` (for example `incomplete` or `failed`) as a skipped frame.
+- Known weakness: vision language models tend to report an object that is not there when the prompt names it. The bake-off's empty frames measure this; the item cut and the drop rules contain it; beliefs stay out of the prompt until the bake-off shows they are safe.
 - Prompt: report only listed items that are clearly visible; `in_hand` means in the wearer's own hand; never describe people; when unsure, lower the confidence rather than guess.
 - Whether the context's `beliefs` go into the prompt is decided by the step 04 bake-off, because showing them can make the model "confirm" them. Until then, leave them out.
 
@@ -57,6 +62,7 @@ These load when you work on perception, the ingest worker, the bake-off or the r
 
 ## Detectors and Roboflow
 
+- Gemini can also return boxes: `box_2d` as `[ymin, xmin, ymax, xmax]` normalized to 0..1000. The bake-off scores them as a detector candidate; scale them back to pixels before cropping.
 - `detect(image) -> list[Detection]` in `app/perception/detector.py` is the only place that calls Roboflow.
 - Inference only, on staged frames of our own objects. Never upload a frame from a real home or of a real person to a Roboflow project: the workspace is on the Research plan, so it is public.
 

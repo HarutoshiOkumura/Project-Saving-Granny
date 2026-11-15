@@ -20,8 +20,8 @@ Workspace settings, API keys. Put the private key in `.env` as `ROBOFLOW_API_KEY
 3. Run `scripts/bakeoff.py` (built in step 04) over them with each candidate:
    - **YOLO-World**, zero-shot: `POST https://serverless.roboflow.com/yolo_world/infer` with `text` set to the class names and `yolo_world_version_id` such as `v2-l`. Start at confidence 0.05. Verify: https://docs.roboflow.com/models/supported-models/yolo-world.md
    - **SAM 3**, text prompts: `POST https://serverless.roboflow.com/sam3/concept_segment`, up to 16 prompts per request, about 250 ms. Verify: https://docs.roboflow.com/models/supported-models/sam3.md
-   - **Claude Haiku** with the perception schema, no detector.
-4. Try two or three wordings per item ("keys", "bunch of keys", "eyeglasses", "reading glasses", "pill organizer").
+   - **Gemini** (`gemini-3.6-flash`, `gemini-3.5-flash-lite` and `gemini-4-hydrogen`, D24) with the perception schema, no detector. Also score Gemini's own `box_2d` boxes as a detector.
+4. Try two or three wordings per item ("keys", "bunch of keys", "reading glasses", "eyeglasses", "silver watch", "wristwatch", "water bottle", "dark blue bottle", "green handbag").
 5. Fill the table the script prints: per model and item, hits out of 10 close-ups, hits out of 10 medium, false alarms on the empty frames.
 6. Decide with CP2 in `PLAN.md`. Write the result into `DECISIONS.md` D3.
 
@@ -63,7 +63,7 @@ Verify the client and response shape in the docs before relying on this; `x` and
 
 ## 6. Workflows
 
-A Roboflow Workflow can chain detector, crop, a Claude block and a webhook. It is a good picture for the video, but it duplicates the Python chain. Build the Python chain. Recreate it as a Workflow only if time is left and you want the screenshot.
+A Roboflow Workflow can chain detector, crop, a language-model block and a webhook. It is a good picture for the video, but it duplicates the Python chain. Build the Python chain. Recreate it as a Workflow only if time is left and you want the screenshot.
 
 ## 7. If the hosted API is slow or down
 
