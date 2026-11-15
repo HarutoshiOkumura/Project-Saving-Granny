@@ -24,10 +24,10 @@ Built at Emory Hacks 2026.
 2. Start the backend:
 
    ```bash
-   uv run uvicorn app.main:app --port 8000
+   uv run uvicorn app.main:app --port 3000
    ```
 
-3. Open the family dashboard at http://localhost:8000/dashboard and type the `APP_TOKEN` from `.env` once.
+3. Open the family dashboard at http://localhost:3000/dashboard and type the `APP_TOKEN` from `.env` once.
 
 4. Feed it a camera walk. Replay a recorded video (needs ffmpeg), and the dashboard fills in as things are put down:
 

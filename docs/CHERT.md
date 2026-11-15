@@ -26,8 +26,8 @@ Built from `chert new agent --video --agent save-it` (CLI 0.1.0-beta.20). Line: 
 | `photo.mjs` | Decodes the backend's card-sized JPEG into pixels for `card.mjs` (sharp, loaded on first use) |
 | `test/` | `npm test`: offline, no paid calls |
 
-Run (two terminals, from `agent/`; a third for the backend when `BACKEND_URL=http://localhost:8000`):
-0. Backend, from the repo root: `uv run uvicorn app.main:app --port 8000`. If it is down, every answer is "I'm not sure. Let me check with June."
+Run (two terminals, from `agent/`; a third for the backend when `BACKEND_URL=http://localhost:3000`):
+0. Backend, from the repo root: `uv run uvicorn app.main:app --port 3000`. If it is down, every answer is "I'm not sure. Let me check with June."
 1. `npm install && npm start` (waits for jobs; free until a call)
 2. `npx @trychert/facetime@0.1.0-beta.20 dev --agent save-it` → wait for "is in a waiting room", then FaceTime the line.
 3. Stop: Ctrl+C on `chert dev` first (frees the line), then the agent. After code changes restart both.
@@ -120,7 +120,7 @@ It never calls 911 and never says it told anyone.
 
 ### Test without FaceTime (uses no Chert minutes)
 Chert counts FaceTime minutes per call (trial: 50, at most 5 a call; `npx @trychert/facetime@0.1.0-beta.20 doctor` shows what is left). Holding the line costs nothing, and the agent opens no Gemini session until someone joins. For everyday testing, skip FaceTime:
-1. Backend (repo root): `uv run uvicorn app.main:app --port 8000`
+1. Backend (repo root): `uv run uvicorn app.main:app --port 3000`
 2. Agent (`agent/`): `npm start`
 3. Browser call (`agent/`): `npm run web-call`, open http://127.0.0.1:8090, press **Call Save It**, allow the microphone.
 

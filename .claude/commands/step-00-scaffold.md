@@ -28,7 +28,7 @@ Already done on 14 Nov: `.gitignore`, `.env.example`, `.env` (Supabase values fi
 - `uv sync` succeeds.
 - `uv run pytest -q` passes.
 - `uv run ruff check . && uv run ruff format --check .` is clean.
-- `uv run uvicorn app.main:app --port 8000` starts, and `curl -s localhost:8000/health` returns `{"ok":true}`.
+- `uv run uvicorn app.main:app --port 3000` starts, and `curl -s localhost:3000/health` returns `{"ok":true}`.
 - `git status` does not list `.env`.
 
 ## Humans, in parallel

@@ -56,7 +56,7 @@ The phone needs HTTPS to open the camera.
 - **Machine:** a Coder workspace on the event's hosted deployment (D6, `docs/CODER.md`): Tom's `save-it` unless the team picks another. Laptops only edit and run the `coder` CLI.
 - **Phone:** the lanyard phone is an iPhone 17, using Safari.
 - **Public address:** a Cloudflare Quick Tunnel started inside the workspace.
-  `cloudflared tunnel --url http://localhost:8000` prints a `https://<random>.trycloudflare.com` address; put it in `PUBLIC_BASE_URL`.
+  `cloudflared tunnel --url http://localhost:3000` prints a `https://<random>.trycloudflare.com` address; put it in `PUBLIC_BASE_URL`.
 - **Why this shape:** Coder's own port sharing cannot serve the public: the deployment caps sharing at `owner` and its license enforces the cap (checked 14 Nov).
   A call goes phone service -> Cloudflare -> the workspace pod, so a Coder dashboard hiccup does not drop a call; a stopped workspace does.
 - **From the docs (checked 14 Nov):** a Quick Tunnel's hostname changes on every run and stops working when the process stops.
@@ -78,7 +78,7 @@ Before every test run and the demo:
 | # | Assumption | How you notice it failed | Fallback |
 |---|---|---|---|
 | A1 | The workspace's network lets `cloudflared` connect out. | `cloudflared` prints connection errors and no `trycloudflare.com` address, or `curl <address>/health` from a phone on cellular does not return `{"ok":true}`. | Run the API and `cloudflared` on a laptop (A2's fallback); on venue Wi-Fi that fails too, use a teammate's phone hotspot (not the lanyard iPhone). |
-| A2 | The workspace runs and the API starts in it. | `coder list` shows it stopped or failed, or `curl localhost:8000/health` inside the workspace fails. | Run the API on a laptop (`uv run uvicorn app.main:app --port 8000`) with `cloudflared` there (`brew install cloudflared`). Everything still works; say Coder only for development (D6). |
+| A2 | The workspace runs and the API starts in it. | `coder list` shows it stopped or failed, or `curl localhost:3000/health` inside the workspace fails. | Run the API on a laptop (`uv run uvicorn app.main:app --port 3000`) with `cloudflared` there (`brew install cloudflared`). Everything still works; say Coder only for development (D6). |
 | A3 | The workspace is inside its 40 hours. | The workspace page in the Coder dashboard shows a stop time before judging ends. | `coder restart <workspace>` (a new 40 hours), then start the API and the tunnel again (step 3). |
 | A4 | The address in Vapi matches the running tunnel. | A call gets silence or the fallback sentence, and the Vapi call log shows a failed tool request. | Copy the current `trycloudflare.com` address into the Vapi tool's server URL and `.env`, and reopen the capture page on the iPhone. |
 | A5 | Answers stay fast through the tunnel. | `curl -s -o /dev/null -w '%{time_total}\n' <address>/health` from a phone on cellular or another network takes more than 1 s. | Try the hotspot (A1). If it is still slow, note it in STATUS for step 11. |
@@ -319,7 +319,7 @@ Channel and scope:
 - CP1 now means: a FaceTime call to the Chert line answers from camera data.
 - The camera page (step 07) is deferred.
   The demo video is pre-recorded, so frames come from a recorded walk through `scripts/replay_video.py --interval 0.5`, which gives the same answers as the live page would.
-  With no camera page, no public tunnel is needed: the backend, the agent, the Chert connector and Typesense all run on one Mac, and the agent calls `http://localhost:8000`.
+  With no camera page, no public tunnel is needed: the backend, the agent, the Chert connector and Typesense all run on one Mac, and the agent calls `http://localhost:3000`.
   Build step 07 only if time is left.
 - Rehearsal reset done on Supabase on Sat 14 Nov, about 23:20 EST: 80 questions, 13 sightings and 32 observations deleted.
   Rooms, landmarks and all 7 items are kept, the look-alikes "brown bag" and "orange water bottle" too.

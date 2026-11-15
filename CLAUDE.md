@@ -87,7 +87,7 @@ supabase/dummy_data.sql  sightings in each answer state, for building the read p
 
 ```bash
 uv sync                                              # install (Python 3.12)
-uv run uvicorn app.main:app --reload --port 8000     # run the API
+uv run uvicorn app.main:app --reload --port 3000     # run the API
 uv run pytest -q                                     # unit tests
 uv run ruff check . && uv run ruff format .          # lint and format
 # database tests: scratch Postgres only, never the Supabase project (needs Docker: a laptop, not a Coder workspace)

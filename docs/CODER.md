@@ -61,7 +61,7 @@ The keys then sit on the event's servers, which its admins can reach. Rotate the
 coder list
 coder open vscode save-it
 coder ssh save-it
-coder port-forward save-it --tcp 8000:8000   # the workspace API at localhost:8000
+coder port-forward save-it --tcp 3000:3000   # the workspace API at localhost:3000
 coder stop save-it / coder start save-it
 coder update save-it --always-prompt         # change IDEs, languages, CPU, memory
 ```
@@ -69,8 +69,8 @@ coder update save-it --always-prompt         # change IDEs, languages, CPU, memo
 In the workspace, two terminals for a call test:
 
 ```bash
-uv run uvicorn app.main:app --port 8000
-cloudflared tunnel --url http://localhost:8000
+uv run uvicorn app.main:app --port 3000
+cloudflared tunnel --url http://localhost:3000
 ```
 
 ## Showing judges

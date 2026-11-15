@@ -26,6 +26,6 @@ Time box: 1 hour.
 ## Checks
 
 - `uv run pytest -q` and ruff are clean.
-- With the smoke-test rows from `docs/SUPABASE.md` section 5 loaded, `curl -s "localhost:8000/find?item=my%20specs"` returns one sentence naming the kitchen counter and about forty minutes ago.
+- With the smoke-test rows from `docs/SUPABASE.md` section 5 loaded, `curl -s "localhost:3000/find?item=my%20specs"` returns one sentence naming the kitchen counter and about forty minutes ago.
 - Time 20 calls: median under 300 ms, worst under 1 s. Record the numbers in STATUS.
 - Delete the smoke-test rows.

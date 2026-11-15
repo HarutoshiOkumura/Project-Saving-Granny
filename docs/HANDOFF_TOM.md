@@ -75,7 +75,7 @@ Each `/snapshot` entry now looks like this (trimmed; every older field is unchan
 - Please try on a test call: "I fell" (expect "Are you hurt?" once, then the safety sentence), "help me find my keys", "my glasses fell", "the bag fell off the chair", "I lost my keys" (all four must just be normal find questions), and "someone wants gift cards" (the scam sentence at once).
 - The sentences are fixed in `voice.md` "Safety" and checked by a test. The agent never says it told anyone: there is no family notification channel yet.
 - Optional for the card: a calm state while a concern is raised (for example the steady marker and "I'm here with you"), with no red and no alarm look.
-- Each report writes one `report_concern` line to the call log with the backend's `id` and `urgency`. To see raised concerns: `curl -H "Authorization: Bearer $APP_TOKEN" localhost:8000/api/concerns`.
+- Each report writes one `report_concern` line to the call log with the backend's `id` and `urgency`. To see raised concerns: `curl -H "Authorization: Bearer $APP_TOKEN" localhost:3000/api/concerns`.
 
 ## 6. Do not
 

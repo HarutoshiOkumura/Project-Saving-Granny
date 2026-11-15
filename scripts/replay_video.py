@@ -4,7 +4,7 @@
     uv run python -m scripts.replay_video recordings/walk.mov --interval 0.5  # every 0.5 s
     uv run python -m scripts.replay_video recordings/walk.mov --ask glasses,keys,bag
 
-The API must be running (`uv run uvicorn app.main:app --port 8000`) with APP_TOKEN set; this
+The API must be running (`uv run uvicorn app.main:app --port 3000`) with APP_TOKEN set; this
 script sends the same token from `.env`. ffmpeg cuts one still JPEG per interval (rotation
 applied), and the frames go out at the interval, in real time by default, so the server sees what
 the phone would send, Gemini's busy slots included. Capture times are rebased so the last frame is
@@ -56,7 +56,7 @@ def main() -> None:
     parser.add_argument("video", type=Path)
     parser.add_argument("--interval", type=float, default=2.0, help="seconds between frames (D10)")
     parser.add_argument("--speed", type=float, default=1.0, help="2 sends twice as fast")
-    parser.add_argument("--url", default="http://localhost:8000")
+    parser.add_argument("--url", default="http://localhost:3000")
     parser.add_argument("--device", help="device id (default: replay-<video name>)")
     parser.add_argument("--ask", default="", help="comma list of items to ask about after")
     parser.add_argument("--settle", type=float, default=20.0, help="seconds to wait before --ask")
