@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     typesense_host: str | None = None
     typesense_api_key: SecretStr | None = None
 
+    # Moments: the photo of where an item was last seen, for the FaceTime card, and the search
+    # over those photos (app/moments.py). MOMENT_PHOTOS=false stops the extra upload per sighting.
+    moment_photos: bool = True
+    embedding_model: str = "gemini-embedding-2"
+
 
 @lru_cache
 def get_settings() -> Settings:

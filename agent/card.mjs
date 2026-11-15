@@ -4,6 +4,7 @@
 // text on a full-width dark band.
 // Plain JavaScript with a built-in 5x7 pixel font, so it needs no canvas library or system fonts.
 // Frames are rendered once per change and reused, so sending 10 frames a second costs almost nothing.
+// A photo card shows the moment the thing was last seen (photo.mjs decodes it; the backend sizes it).
 
 export const WIDTH = 1280;
 export const HEIGHT = 720;
@@ -65,15 +66,44 @@ export function cardLines(view) {
   return ['WHAT CAN I', 'HELP YOU FIND?'];
 }
 
+/** How much of the card FaceTime on an upright iPhone cut off each side (test call, 14 Nov). */
+export const FACETIME_CROP = 100;
+
+/**
+ * Where a photo card puts things: the place name on a dark band along the bottom and the photo above it.
+ * `safe` = [left, top, right, bottom] is the part of the card the caller surely sees and no text covers:
+ * the width FaceTime keeps, down to the band. The backend fits the whole photo inside it, never cut
+ * (GET /moments/{id}/photo?safe=...): on the 15 Nov test call a photo that filled the card was zoomed in
+ * so far that it showed too little of the room.
+ * The band names the landmark only, on one line when it fits: the photo shows the room, and each line of
+ * text takes 90 px from the photo.
+ */
+export function photoLayout(view) {
+  const lines = view?.landmark ? wrap(String(view.landmark).replace(/^the\s+/i, '')) : cardLines({ ...view, kind: 'place' });
+  const bandY = HEIGHT - (lines.length * 9 * BIG + 40);
+  return { lines, bandY, safe: [FACETIME_CROP, 0, WIDTH - FACETIME_CROP, bandY] };
+}
+
+/** True when `photo` is { rgba, circle? } with a full frame of pixels: the only kind renderCard can show. */
+export const isPhoto = photo => photo?.rgba?.length === WIDTH * HEIGHT * 4;
+
 /**
  * Render the card. `mode` sets the marker: 'speaking' (orange, pulsed by the caller of this function while
  * Save It talks), 'listening' (steady green: the caller's voice is coming in, see voice-meter.mjs), or 'idle'.
  * No word under the light (Tom, 14 Nov): the light alone, coming on the moment they speak.
  * true and false still mean 'speaking' and 'idle'.
+ *
+ * { kind: 'photo', landmark, room, photo: { rgba, circle } } shows the moment the thing was last seen: the
+ * whole photo above a band with the place name, and a ring on the thing (`circle` = [x, y, radius], or none). `pulse` draws the ring's other beat (wider and thinner); the caller alternates the two,
+ * once a second at most (docs/DASHBOARD.md). Without a usable photo it is drawn as a place card.
  */
-export function renderCard(view, mode = 'idle') {
+export function renderCard(view, mode = 'idle', pulse = false) {
   if (mode === true) mode = 'speaking';
   if (mode === false) mode = 'idle';
+  if (view?.kind === 'photo') {
+    if (isPhoto(view.photo)) return renderPhotoCard(view, mode, pulse);
+    view = { ...view, kind: 'place' };
+  }
   const px = new Uint8Array(WIDTH * HEIGHT * 4);
   fill(px, 0, 0, WIDTH, HEIGHT, BG);
   drawText(px, 'FIND IT', Math.round((WIDTH - textWidth('FIND IT', SMALL)) / 2), 48, SMALL, DIM);
@@ -84,6 +114,27 @@ export function renderCard(view, mode = 'idle') {
   const cx = WIDTH / 2, cy = HEIGHT - 100;
   const [ring, dot] = mode === 'speaking' ? [RING, DOT] : mode === 'listening' ? [HEAR_RING, HEAR_DOT] : [PANEL, DIM];
   circle(px, cx, cy, 26, ring);
+  circle(px, cx, cy, 14, dot);
+  return px;
+}
+
+function renderPhotoCard(view, mode, pulse) {
+  const { lines, bandY } = photoLayout(view);
+  const px = new Uint8Array(view.photo.rgba); // a copy: the same photo is drawn on for every frame
+  if (view.photo.circle) {
+    const [x, y, radius] = view.photo.circle.map(Math.round);
+    const [r, thick] = pulse ? [radius + 10, 8] : [radius, 12];
+    ring(px, x, y, r, thick + 8, PANEL); // a dark edge, so the ring shows on a pale table too
+    ring(px, x, y, r, thick, RING);
+  }
+  fill(px, 0, bandY, WIDTH, HEIGHT - bandY, PANEL);
+  lines.forEach((line, i) => drawText(px, line, Math.round((WIDTH - textWidth(line, BIG)) / 2), bandY + 24 + i * 9 * BIG, BIG, WHITE));
+  // The talking and listening light, on its own dark disc so it reads on any photo, in the top right corner
+  // of what FaceTime shows: out of the way of the thing, which sits in the middle of its photo.
+  const cx = WIDTH - FACETIME_CROP - 56, cy = 56;
+  const [lightRing, dot] = mode === 'speaking' ? [RING, DOT] : mode === 'listening' ? [HEAR_RING, HEAR_DOT] : [PANEL, DIM];
+  circle(px, cx, cy, 40, PANEL);
+  circle(px, cx, cy, 26, lightRing);
   circle(px, cx, cy, 14, dot);
   return px;
 }
@@ -114,5 +165,17 @@ function circle(px, cx, cy, radius, color) {
   for (let y = -radius; y <= radius; y++) {
     const half = Math.floor(Math.sqrt(radius * radius - y * y));
     fill(px, cx - half, cy + y, half * 2 + 1, 1, color);
+  }
+}
+
+/** A ring `thickness` wide, centred on the circle of `radius` (the middle stays as it was). */
+function ring(px, cx, cy, radius, thickness, color) {
+  const outer = radius + thickness / 2, inner = Math.max(0, radius - thickness / 2);
+  for (let y = -Math.floor(outer); y <= outer; y++) {
+    const out = Math.floor(Math.sqrt(outer * outer - y * y));
+    const hole = Math.abs(y) < inner ? Math.ceil(Math.sqrt(inner * inner - y * y)) : 0;
+    if (!hole) { fill(px, cx - out, cy + y, out * 2 + 1, 1, color); continue; }
+    fill(px, cx - out, cy + y, out - hole + 1, 1, color);
+    fill(px, cx + hole, cy + y, out - hole + 1, 1, color);
   }
 }

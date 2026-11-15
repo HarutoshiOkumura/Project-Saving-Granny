@@ -4,10 +4,15 @@ The memory functions go through `rpc(name, params)`. The write path also reads t
 and ids from the tables, inserts observations (there is no function for that) and uploads crops
 to the private `crops` bucket. Every call has a hard `asyncio.timeout`.
 
-On the read path, the table reads are `list_items` (item names and aliases for the Typesense copy,
-step 09, and the FaceTime agent's call-start snapshot) and `look_evidence` (habits and glimpses for
-"where to look" in the snapshot, D33). `find_item` is the read that logs no question.
-`sign_photos` turns crop paths into links that work for an hour.
+On the read path, the table reads are `list_items` (item names and aliases for the Typesense
+copy, step 09, and the FaceTime agent's call-start snapshot), `list_moments` (stays with their
+names, for the moments search and the FaceTime photo) and `look_evidence` (habits and glimpses
+for "where to look" in the snapshot, D33). `find_item` is the read that logs no question.
+Photos are read with `download_photo` (the bytes, for the card the backend draws) and
+`sign_photos` (links that work for an hour, for the snapshot); a storage path never leaves the
+backend.
+Guided directions (`app/guide.py`) read `latest_view` (the newest stored frame: the wearer's room
+and the landmarks in view) and `home_layout` (rooms and landmarks).
 """
 
 import asyncio
@@ -19,6 +24,7 @@ from uuid import UUID
 
 import httpx
 from postgrest.exceptions import APIError
+from storage3.exceptions import StorageApiError
 from supabase import AsyncClient, AsyncClientOptions, acreate_client
 
 from app.config import get_settings
@@ -32,11 +38,14 @@ from app.memory.schema import (
     FindResult,
     Glimpse,
     HomeInfo,
+    HomeLayout,
     HomeMap,
     Item,
     LandmarkKind,
     LifeEvent,
     LookEvidence,
+    Moment,
+    Observation,
     PatternRows,
     PerceptionContext,
     PlaceName,
@@ -50,6 +59,7 @@ from app.memory.schema import (
 
 READ_TIMEOUT_S = 2.0  # the read path: a caller is waiting
 WRITE_TIMEOUT_S = 10.0  # the write path: a background task, may fail softly
+PHOTO_TIMEOUT_S = 8.0  # a photo for the FaceTime card; the spoken answer never waits on it
 CROPS_BUCKET = "crops"
 PHOTO_LINK_S = 3600  # signed crop links last an hour (memory-db rules)
 PAGE = 1000  # PostgREST returns at most this many rows per request on Supabase
@@ -142,6 +152,47 @@ async def list_items() -> list[Item]:
     return [Item.model_validate(row) for row in response.data]
 
 
+_MOMENT_COLUMNS = (
+    "id,status,in_hand,relation,description,last_seen_at,crop_url,"
+    "items(name,aliases,color,description),landmarks(spoken_name),rooms(spoken_name)"
+)
+
+
+async def list_moments(sighting_id: UUID | None = None, *, limit: int = 500) -> list[Moment]:
+    """This home's stays of enrolled items, newest first, each with its item's names and looks and
+    the spoken place: what the moments search indexes (`app/moments.py`). With `sighting_id`, that
+    one stay (or []), within the read path's timeout. Read-only."""
+    async with asyncio.timeout(READ_TIMEOUT_S if sighting_id else WRITE_TIMEOUT_S):
+        client = await _get_client()
+        query = (
+            client.table("sightings")
+            .select(_MOMENT_COLUMNS)
+            .eq("home_id", _home())
+            .filter("item_id", "not.is", "null")  # unowned detections are not moments
+        )
+        if sighting_id is not None:
+            query = query.eq("id", str(sighting_id))
+        response = await query.order("last_seen_at", desc=True).limit(limit).execute()
+    return [Moment.from_row(row) for row in response.data]
+
+
+def moment_path(crop_url: str) -> str:
+    """Where the moment photo that goes with a tight crop is stored: beside it, `.moment.jpg`."""
+    return crop_url.removesuffix(".jpg") + ".moment.jpg"
+
+
+async def download_photo(path: str) -> bytes | None:
+    """The JPEG at a storage path (`crops/<home>/<item>/<time>.jpg`), or None when there is no
+    such file. Raises TimeoutError after PHOTO_TIMEOUT_S."""
+    bucket, _, key = path.partition("/")
+    async with asyncio.timeout(PHOTO_TIMEOUT_S):
+        client = await _get_client()
+        try:
+            return await client.storage.from_(bucket).download(key)
+        except StorageApiError:
+            return None
+
+
 async def look_evidence(item_ids: list[UUID], glimpses_since: datetime) -> LookEvidence:
     """Everything "where to look" weighs besides `find_item`: the home's place names, each item's
     settled stays per place (`item_usual_places`) and its one-frame glimpses on a landmark since
@@ -218,6 +269,66 @@ async def perception_context(room_id: UUID | None = None) -> PerceptionContext:
         client = await _get_client()
         response = await client.rpc("perception_context", params).execute()
     return PerceptionContext.model_validate(response.data)
+
+
+# Guidance (`GET /guide`, app/guide.py) reads two more things, both text only: the newest frame's
+# room and landmarks, and the home's layout.
+
+
+async def latest_view() -> Observation | None:
+    """The newest frame the worn camera had processed: the wearer's room and the landmarks in
+    view. None before the first frame. Read-only. Raises like `ask_item`."""
+    async with asyncio.timeout(READ_TIMEOUT_S):
+        client = await _get_client()
+        response = await (
+            client.table("observations")
+            .select("captured_at,room_id,landmarks_seen")
+            .eq("home_id", _home())
+            .eq("source", "worn_cam")
+            .order("captured_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    return Observation.model_validate(response.data[0]) if response.data else None
+
+
+async def home_layout() -> HomeLayout:
+    """Room spoken names and floors, landmark addresses, and which rooms connect. Read-only.
+    It changes only when the family edits the home, so the caller caches it."""
+    home = _home()
+    async with asyncio.timeout(READ_TIMEOUT_S):
+        client = await _get_client()
+        rooms, places = await asyncio.gather(
+            client.table("rooms").select("id,name,spoken_name,floor").eq("home_id", home).execute(),
+            client.table("places")
+            .select("landmark_id,room_id,address")
+            .eq("home_id", home)
+            .execute(),
+        )
+        room_ids = [r["id"] for r in rooms.data]
+        links = (
+            (
+                await client.table("room_links")
+                .select("room_a,room_b")
+                .in_("room_a", room_ids)
+                .execute()
+            ).data
+            if room_ids
+            else []
+        )
+    return HomeLayout.model_validate(
+        {
+            "rooms": [
+                {"id": r["id"], "spoken": r["spoken_name"] or r["name"], "floor": r["floor"]}
+                for r in rooms.data
+            ],
+            "landmarks": [
+                {"id": p["landmark_id"], "room_id": p["room_id"], "address": p["address"]}
+                for p in places.data
+            ],
+            "links": [(link["room_a"], link["room_b"]) for link in links],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -298,6 +409,19 @@ async def upload_crop(item: str, captured_at: datetime, jpeg: bytes) -> str:
             key, jpeg, {"content-type": "image/jpeg", "upsert": "true"}
         )
     return f"{CROPS_BUCKET}/{key}"
+
+
+async def upload_moment(crop_url: str, jpeg: bytes) -> str:
+    """Store the moment photo (the wider view of where the item sits, `app/photo.py`) beside its
+    tight crop in the private bucket; returns its storage path. Never a full frame."""
+    path = moment_path(crop_url)
+    bucket, _, key = path.partition("/")
+    async with asyncio.timeout(WRITE_TIMEOUT_S):
+        client = await _get_client()
+        await client.storage.from_(bucket).upload(
+            key, jpeg, {"content-type": "image/jpeg", "upsert": "true"}
+        )
+    return path
 
 
 async def log_sighting(

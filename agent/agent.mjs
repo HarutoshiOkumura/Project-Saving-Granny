@@ -1,6 +1,7 @@
 // Save It on FaceTime: Chert bridges the call into a LiveKit room; this agent answers in it.
 // Voice: Gemini Live (speech in, speech out). Answers: saveit.mjs (backend /find, or the fake home).
-// Video: card.mjs shows where to look. Rules from docs/CHERT.md, docs/RETRIEVAL.md and docs/DASHBOARD.md.
+// Video: card.mjs shows where to look: the place name, then the photo of the moment the thing was last seen
+// there, with a ring around it. Rules from docs/CHERT.md, docs/RETRIEVAL.md and docs/DASHBOARD.md.
 
 import './env.mjs'; // first: .env.local wins over the terminal's variables (VS Code injects the repo's .env)
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -8,15 +9,22 @@ import { fileURLToPath } from 'node:url';
 import { AutoSubscribe, defineAgent, llm, voice } from '@livekit/agents';
 import * as google from '@livekit/agents-plugin-google';
 import { AudioStream, LocalVideoTrack, RoomEvent, TrackKind, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
-import { FPS, HEIGHT, renderCard, WIDTH } from './card.mjs';
+import { FPS, HEIGHT, photoLayout, renderCard, WIDTH } from './card.mjs';
 import { runAgent } from './chert-rooms.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
+import { GUIDE_TOOL, createGuide, sayGuidance } from './guide.mjs';
+import { decodePhoto } from './photo.mjs';
 import { GREETING, buildInstructions } from './prompt.mjs';
 import { CONCERN_ANSWERS, CONCERN_KINDS, createConcernReporter } from './concern.mjs';
 import { createSaveIt } from './saveit.mjs';
 import { createVoiceMeter } from './voice-meter.mjs';
 
 const FAMILY = process.env.FAMILY_NAME || 'June';
+
+// The ring around the thing on a photo card breathes (once a second) this long after the photo appears, then
+// holds still. A call keeps this many decoded photos, so asking again shows the photo at once.
+const RING_PULSE_MS = 8000;
+const PHOTOS_KEPT = 6;
 
 // Gemini Live model. Keep a 2.5 native-audio model: in @livekit/agents-plugin-google 1.8.0, any model with
 // "3.1" in its name rejects generateReply, so the greeting would fail and Chert would end the call.
@@ -85,13 +93,26 @@ const agent = defineAgent({
     const track = LocalVideoTrack.createVideoTrack('save-it-card', source);
     // The marker: orange and pulsing while Save It talks; steady green the moment the caller's voice comes in
     // (a level meter on their audio, below); dim otherwise. Talking wins over hearing (echo of our own voice).
-    const framesFor = view => ({ off: renderCard(view, 'idle'), on: renderCard(view, 'speaking'), hear: renderCard(view, 'listening') });
+    // A photo card comes in two beats of the ring around the thing (frames[1] is the wider one); every other
+    // card uses one set for both.
+    const framesFor = view => {
+      const set = pulse => ({ off: renderCard(view, 'idle', pulse), on: renderCard(view, 'speaking', pulse), hear: renderCard(view, 'listening', pulse) });
+      const steady = set(false);
+      return view.kind === 'photo' ? [steady, set(true)] : [steady, steady];
+    };
     let frames = framesFor({ kind: 'idle' });
     let speaking = false, hearing = false;
-    const show = view => { frames = framesFor(view); };
+    let shown = 0;          // goes up with every card, so a photo that arrives late never replaces a newer card
+    let ringPulseUntil = 0;
+    const show = view => {
+      shown += 1;
+      frames = framesFor(view);
+      ringPulseUntil = view.kind === 'photo' ? Date.now() + RING_PULSE_MS : 0;
+    };
     const send = () => {
-      const lit = speaking && Math.floor(Date.now() / 500) % 2 === 0;
-      const frame = speaking ? (lit ? frames.on : frames.off) : hearing ? frames.hear : frames.off;
+      const beat = Math.floor(Date.now() / 500) % 2 === 0;
+      const set = frames[Date.now() < ringPulseUntil && !beat ? 1 : 0];
+      const frame = speaking ? (beat ? set.on : set.off) : hearing ? set.hear : set.off;
       source.captureFrame(new VideoFrame(frame, WIDTH, HEIGHT, VideoBufferType.RGBA));
     };
     send();
@@ -112,12 +133,36 @@ const agent = defineAgent({
     for (const pub of caller.trackPublications.values()) if (pub.track) meterIfCaller(pub.track, pub, caller);
     const known = await knownSoon;
 
-    // Each tool returns the sentence to read verbatim, and updates the card when there is a place to show.
-    // A where-is answer with no place clears the card, so it never shows a place from an earlier question.
-    const reply = ({ say, suggested }, clearIfNoPlace = false) => {
-      if (suggested) show({ kind: 'place', landmark: suggested.landmark, room: suggested.room });
-      else if (clearIfNoPlace) show({ kind: 'idle' });
-      return say;
+    // Where to look. The place name goes up at once; the photo of that moment replaces it when it has loaded,
+    // so the answer never waits on a picture. A where-is answer with no place clears the card (`clearIfNoPlace`),
+    // so it never shows a place from an earlier question.
+    const photos = new Map(); // sighting -> decoded photo, for this call
+    const showAnswer = ({ suggested, sighting }, clearIfNoPlace = false) => {
+      if (!suggested) {
+        if (clearIfNoPlace) show({ kind: 'idle' });
+        return;
+      }
+      const place = { kind: 'place', landmark: suggested.landmark, room: suggested.room };
+      if (sighting && photos.has(sighting)) return show({ ...place, kind: 'photo', photo: photos.get(sighting) });
+      show(place);
+      if (!sighting) return;
+      const mine = shown;
+      saveIt.loadPhoto(sighting, { width: WIDTH, height: HEIGHT, safe: photoLayout(place).safe })
+        .then(loaded => loaded && decodePhoto(loaded))
+        .then(photo => {
+          if (!photo) return;
+          photos.set(sighting, photo);
+          if (photos.size > PHOTOS_KEPT) photos.delete(photos.keys().next().value);
+          if (mine !== shown) return; // another card went up while this one loaded
+          show({ ...place, kind: 'photo', photo });
+          callLog({ event: 'photo_shown', ring: Boolean(photo.circle) });
+        })
+        .catch(err => callLog({ event: 'photo_failed', error: String(err?.message ?? err).slice(0, 200) }));
+    };
+    // Each tool returns the sentence to say, and updates the card.
+    const reply = (out, clearIfNoPlace = false) => {
+      showAnswer(out, clearIfNoPlace);
+      return out.say;
     };
     const findObjectTool = llm.tool({
         name: 'find_object',
@@ -130,6 +175,13 @@ const agent = defineAgent({
     // then saying the same sentence twice, and each lookup cost a second model round (about 1.5 s).
     // No recall_life_fact or alert_caregiver: nothing answers /facts or /alert yet, and on the test call each
     // failed and made the agent say a second sentence ("Let me check with June"). Family calling is paused.
+    // find_by_description needs the backend's search over the moments (GET /describe); the fake home has none.
+    const describeTool = llm.tool({
+      name: 'find_by_description',
+      description: 'They describe one of their things by how it looks or what it is for instead of naming it, or their answer to "which one?" does not settle it. Finds the thing that fits best among the photos of their things. Returns which thing they mean and what to say.',
+      parameters: { type: 'object', properties: { description: { type: 'string', description: 'What they said about the thing, in their own words, e.g. "the silver one I wear on my wrist".' } }, required: ['description'] },
+      execute: async ({ description }) => reply(await saveIt.findByDescription(description), true),
+    });
     const tools = [
       ...(known.length ? [] : [findObjectTool]),
       // Always offered, snapshot or not (docs/INSIGHTS.md design 3): ask once, report, the family decides.
@@ -146,6 +198,7 @@ const agent = defineAgent({
         },
         execute: async ({ kind, answer }) => (await concerns.report(kind, answer)).say,
       }),
+      ...(saveIt.mode === 'backend' ? [describeTool] : []),
       llm.tool({
         name: 'report_not_there',
         description: 'They checked the place and the thing was not there. Returns what to say next.',
@@ -168,6 +221,31 @@ const agent = defineAgent({
       }),
     ];
 
+    // Guided directions (guide.mjs): once they ask for help getting there, GET /guide is polled while they walk
+    // and Find It speaks up when they get closer. Voice only; the card keeps showing the place. It needs the
+    // backend (the camera's view lives there), so the fake home has no such tool.
+    const guide = createGuide({
+      saveIt,
+      backendUrl: process.env.BACKEND_URL || '',
+      appToken: process.env.APP_TOKEN || '',
+      log: callLog,
+      onLookup: found => reply(found, true),
+      announce: g => {
+        if (speaking || hearing) return false; // never over the caller, never over ourselves; tried again next poll
+        session.generateReply({ instructions: sayGuidance(g.sentence) });
+        return true;
+      },
+    });
+    if (saveIt.mode === 'backend') {
+      tools.push(llm.tool({
+        name: 'guide_to_thing',
+        description: GUIDE_TOOL,
+        parameters: { type: 'object', properties: { thing: { type: 'string', description: 'The thing they are looking for, e.g. "glasses".' } } },
+        execute: async ({ thing } = {}) => guide.begin(thing),
+      }));
+    }
+    ctx.addShutdownCallback(async () => guide.stop('call_end'));
+
     const session = new voice.AgentSession({
       llm: new google.realtime.RealtimeModel({
         model: MODEL,
@@ -187,7 +265,7 @@ const agent = defineAgent({
       callLog({ event: 'heard', ...(TRANSCRIPTS ? { text: event.transcript } : { words: event.transcript.split(/\s+/).filter(Boolean).length }) });
       // The model answers known items from its instructions; the card and the question log follow what was heard.
       saveIt.noteHeard(event.transcript).then(out => {
-        if (out) show(out.suggested ? { kind: 'place', landmark: out.suggested.landmark, room: out.suggested.room } : { kind: 'idle' });
+        if (out) showAnswer(out, true);
       });
     });
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, event => {
@@ -196,7 +274,7 @@ const agent = defineAgent({
       // The card and the log follow what the reply settled on: after "the blue one?" "Yes", the caller's words
       // name no item, but the answer names the blue water bottle.
       saveIt.noteSaid(event.item.textContent ?? '').then(out => {
-        if (out) show(out.suggested ? { kind: 'place', landmark: out.suggested.landmark, room: out.suggested.room } : { kind: 'idle' });
+        if (out) showAnswer(out, true);
       });
     });
     session.on(voice.AgentSessionEventTypes.MetricsCollected, event => {
@@ -216,7 +294,7 @@ const agent = defineAgent({
     });
     await session.start({
       room: ctx.room,
-      agent: new voice.Agent({ instructions: buildInstructions(known), tools }),
+      agent: new voice.Agent({ instructions: buildInstructions(known, { describe: saveIt.mode === 'backend' }), tools }),
       record: false,
       inputOptions: {
         participantIdentity: caller.identity,

@@ -76,8 +76,10 @@ const lookalikeLine = k => `  - ${k.item}, which looks like ${k.looks_like ?? 'n
  * starts (GET /snapshot): with it the model answers in one turn, in its own words, instead of a tool round
  * trip. Places and times must stay as given, so it can phrase freely but cannot invent where anything is.
  * Nothing can contact family yet (paused, Tom 14 Nov), so the instructions forbid promising it.
+ * `describe` says the find_by_description tool is there (backend mode): for a thing they describe instead of
+ * naming, the backend searches the photos and words of every moment (GET /describe).
  */
-export function buildInstructions(known) {
+export function buildInstructions(known, { describe = false } = {}) {
   // Look-alikes are listed only in their group, each with its own answer beside what tells it apart: on the
   // 14 Nov test, listed apart, the model gave the green bag the brown bag's place.
   const groups = lookalikeGroups(known);
@@ -85,13 +87,19 @@ export function buildInstructions(known) {
   const single = known.filter(k => !grouped.has(k.item));
   const facts = known.length ? (single.length ? single.map(factLine).join('\n') : '- (only the look-alikes below)') : '- (nothing loaded)';
   const ask = groups.length
-    ? `\n\nSome of their things look alike. When they ask with a word that fits more than one of them, ask which one before you answer, using whatever tells them apart (colour, size, shape, brand). When they choose, answer only from that one's own line, and say which one you mean. If what they say fits only one, just answer from its line.\n${groups
+    ? `\n\nSome of their things look alike. When they ask with a word that fits more than one of them, ask which one before you answer, using whatever tells them apart (colour, size, shape, brand). When they choose, answer only from that one's own line, and say which one you mean. If what they say fits only one, just answer from its line.${describe ? ' If their answer still does not tell you which one, call find_by_description with what they said.' : ''}\n${groups
         .map(g => `- ${g.words.map(w => `"${w}"`).join(', ')} could be:\n${g.members.map(lookalikeLine).join('\n')}`)
         .join('\n')}`
     : '';
+  const unknown = 'If they name something that is not on this list, tell them kindly that you do not know it yet and that their family can teach you. Never guess where anything is.';
+  // Only for descriptions: a plainly named thing that is not on the list gets "I don't know it yet" at once,
+  // without a tool round trip (about 1.5 s on the 14 Nov test call).
+  const described = describe
+    ? 'If they describe a thing instead of naming it (how it looks, what it is for, "the silver one I wear on my wrist") and you cannot tell which thing on this list they mean, call find_by_description with their own words. It tells you which thing they mean and what to say; say which thing you understood, then the answer. If it asks which one, ask them. If it does not know, say so kindly.\n'
+    : '';
   const lookup = known.length
-    ? 'If they ask about something that is not on this list, tell them kindly that you do not know it yet and that their family can teach you. Never guess where anything is.'
-    : "Whenever they ask where something is, call find_object with just the thing's name, and tell them what it says.";
+    ? `${described}${unknown}`
+    : `Whenever they ask where something is, call find_object with just the thing's name, and tell them what it says.${describe ? ' If they describe it instead of naming it, call find_by_description with their own words.' : ''}`;
   return `You are ${NAME}, a warm, patient companion on a FaceTime call with an older person whose memory is fading. You help them find their things, and you help them feel calm and capable. You are an AI; say so if they ask.
 
 How you talk:
@@ -114,5 +122,5 @@ If they looked and it was not there, call report_not_there with the thing's name
 If they found it, share their relief. If they tell you where they put something, or where it was, call record_placement.
 If they sound upset or lost, be calm and reassuring.
 If something goes wrong, just say you are not sure right now.
-They can see a card on the video showing where to look. You can offer to stay on the line while they look, but not every time.`;
+On the video they see where to look: the name of the place and, when there is one, a photo of the thing where it was last seen, with a ring around it. You may tell them to look at the picture, but never describe what is in it: you cannot see it. You can offer to stay on the line while they look, but not every time.`;
 }

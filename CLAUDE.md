@@ -32,13 +32,16 @@ phone camera page --JPEG every 0.5 s--> POST /frames
 READ PATH (fast, must never fail)
 caller -> Vapi phone number -> POST /vapi/tool -> ask_item() -> speak() -> one sentence   (cut, D33)
 caller -> FaceTime -> Chert -> LiveKit agent -> ask_item() -> speak() + last-seen photo
+          a thing described, not named -> GET /describe -> Typesense moments -> the item -> ask_item()
+          the photo on the card        -> GET /moments/{sighting}/photo (after the answer, never before)
+          "help me get there"    -> GET /guide (polled every 2 s while they walk; no vision call, no question logged)
 family -> GET /dashboard -> GET /api/timeline
 ```
 
 Two rules shape everything:
 
 - **The database is the only memory.** Models never keep state. Before a model looks at a frame it is given `perception_context()`; after it looks, its answer goes through `log_sighting()` and `mark_absent()`. "Where is it now" is derived by `find_item()`, never stored.
-- **The read path never calls a vision model.** `/find`, `/vapi/tool` and the agent tools do one database call and one pure function. Target under 1 second.
+- **The read path never calls a vision model.** `/find`, `/vapi/tool` and the agent tools do one database call and one pure function. Target under 1 second. One exception, added 15 Nov: `/describe` (the caller describes a thing instead of naming it) first makes one text embedding call and one Typesense search, each with a timeout; if either fails it answers exactly as `/find` would.
 
 ## Repo layout
 
@@ -49,6 +52,7 @@ app/memory/db.py         the ONLY module that talks to Supabase
 app/memory/schema.py     Pydantic models for what the memory functions return (FindResult, Place)
 app/speak.py             find_item JSON -> one spoken sentence (pure, unit-tested)
 app/ask.py               one question: ask_item, speak(), 2 s timeout, fallback, log line (for /find and voice)
+app/guide.py             guided directions: find_item + the newest stored frame -> one step and its sentence (GET /guide)
 app/auth.py              the APP_TOKEN check for /frames, /concerns, /api/* (and photo links in /snapshot)
 app/look.py              "where to look": places ranked with chances for /snapshot (pure, D33)
 app/concerns.py          safety-loop rules: urgency, quiet-day check-in (pure, docs/INSIGHTS.md)
@@ -57,6 +61,8 @@ app/insights.py          the insights endpoints' work: concerns, family tags, pa
 app/family.py            the dashboard's work: board, history, setup, told, add item/room/place
 app/photos.py            signed crop links, cached 50 min so the dashboard's photos do not flicker
 app/names.py             Typesense: spoken words -> item name before ask_item (optional, 300 ms, falls back)
+app/moments.py           Typesense `moments`: a description -> the item it means (/describe); the card photo; the search copy
+app/photo.py             the moment photo (a wider crop around the item, never the full frame) and the FaceTime card picture
 app/voice/vapi.py        Vapi tool webhook
 app/perception/schema.py Pydantic models for the perception result, boxes, the Gemini JSON schema
 app/perception/detector.py  Roboflow calls (SAM 3, the gate and crop boxes)
@@ -68,8 +74,8 @@ app/perception/filters.py   blur and duplicate checks
 app/worker/ingest.py     frame -> filters -> perception -> drop rules -> database (POST /frames)
 app/worker/wear.py       wear time: frames and moving frames per device-minute (counts only)
 app/web/                 capture.html, dashboard.html (static, no build step)
-agent/                   LiveKit agent for the Chert FaceTime line (separate process)
-scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py, coder_setup.sh
+agent/                   LiveKit agent for the Chert FaceTime line (separate process); guide.mjs polls GET /guide
+scripts/                 bakeoff.py, replay_video.py, enroll.py, sync_typesense.py, sync_moments.py, coder_setup.sh
 tests/                   pytest; tests/fixtures/frames/ holds staged frames
 supabase/migrations/     0001, 0002 and 0005_insights.sql (applied; frozen); 0003 (not applied)
 supabase/tests/          test_memory.sql, test_ranking.sql (0003), test_insights.sql (0005); scratch only
@@ -137,7 +143,7 @@ The model may only answer with names from the lists (use JSON-schema enums built
 
 - **Never upload images of a real home or real person to Roboflow.** The workspace is on the Research plan, so everything in it is public. Staged photos of our own objects only.
 - **Real camera frames go to Gemini only from a billing-enabled Google project with AI Studio logging turned off, and every call passes `store=False`.** On the free tier Google may use inputs, images included, to improve its products, with human review; on paid projects logging is on by default and keeps requests 55 days; the Interactions API also stores each request unless told not to (D24). Staged test photos are fine on the free tier.
-- **Never store a full frame.** Store a tight crop of the item, in the private `crops` bucket, and sign URLs at read time.
+- **Never store a full frame.** Store a tight crop of the item and, for the FaceTime card, a moment photo: the widest 16:9 view around the item, at most half of the frame's area, which on an upright phone frame is its whole width and about a third of its height (`app/photo.py`; Tom, 15 Nov). Both go in the private `crops` bucket; sign URLs or serve the bytes at read time. `MOMENT_PHOTOS=false` stores tight crops only.
 - **Never write anything for a room with `capture_allowed = false`.** If perception says the room is one, drop the frame: no crop, no row.
 - **Never commit secrets.** Keys live in `.env` (gitignored). The Supabase secret key (`SUPABASE_SECRET_KEY`, `sb_secret_...`, which replaces the legacy service-role key) is backend-only and must never appear in `app/web/`.
 - **One env file per process, never mixed.** The root `.env` is the backend's (template `.env.example`; `app/config.py` reads it by path). `agent/.env.local` is the FaceTime agent's (template `agent/.env.example`; `chert dev` reads it too), and `agent/env.mjs` makes it win over the terminal's variables. `AGENT_NAME`, `BACKEND_URL` and `FAMILY_NAME` go only in `agent/.env.local`; if both files have `LIVEKIT_*`, keep them identical. The agent never holds `SUPABASE_*` keys.

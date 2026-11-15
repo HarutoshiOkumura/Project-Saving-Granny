@@ -14,6 +14,8 @@ FAKE_ENV = {
     "SUPABASE_URL": "https://fake-project.supabase.co",
     "SUPABASE_SECRET_KEY": "sb_secret_fake",
     "HOME_ID": "11111111-1111-1111-1111-111111111111",
+    # The ingest worker's moment photos (app/moments.py) stay off unless a test turns them on.
+    "MOMENT_PHOTOS": "false",
 }
 
 for _name in Settings.model_fields:

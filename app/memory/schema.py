@@ -1,7 +1,7 @@
 """Pydantic models for what the memory functions return. Keys follow `find_item` in 0001."""
 
 from datetime import date
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -24,6 +24,48 @@ class Item(BaseModel):
     description: str | None = None
     plural: bool = False  # "glasses", "keys": the voice says "they"
     home_landmark_id: UUID | None = None  # where the family says it belongs
+
+
+class Moment(BaseModel):
+    """One stay of an item at a place, with the words a search needs (`db.list_moments`).
+
+    `room` and `landmark` are the spoken names. `note` is what the camera saw, in the vision
+    model's words. `photo` is the tight crop's storage path (`sightings.crop_url`)."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    item: str
+    aliases: list[str] = []
+    looks: str | None = None
+    note: str | None = None
+    room: str | None = None
+    landmark: str | None = None
+    relation: str = "unknown"
+    in_hand: bool = False
+    status: str
+    last_seen_at: AwareDatetime
+    photo: str | None = None
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> "Moment":
+        """A `sightings` row with its `items`, `landmarks` and `rooms` rows embedded."""
+        item = row.get("items") or {}
+        looks = ", ".join(part for part in (item.get("color"), item.get("description")) if part)
+        return cls(
+            id=row["id"],
+            item=item.get("name", ""),
+            aliases=item.get("aliases") or [],
+            looks=looks or None,
+            note=row.get("description"),
+            room=(row.get("rooms") or {}).get("spoken_name"),
+            landmark=(row.get("landmarks") or {}).get("spoken_name"),
+            relation=row.get("relation") or "unknown",
+            in_hand=bool(row.get("in_hand")),
+            status=row["status"],
+            last_seen_at=row["last_seen_at"],
+            photo=row.get("crop_url"),
+        )
 
 
 class Place(BaseModel):
@@ -326,6 +368,43 @@ class Belief(BaseModel):
     in_hand: bool = False
     status: str
     minutes_ago: int | None = None
+
+
+class Observation(BaseModel):
+    """The newest frame the worn camera had processed (`db.latest_view`): where the wearer was
+    and which landmarks were in view. Text only."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    captured_at: AwareDatetime
+    room_id: UUID | None = None
+    landmarks_seen: list[UUID] = []
+
+
+class LayoutRoom(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    spoken: str  # the words the voice says, as `find_item` returns `room`
+    floor: int | None = None
+
+
+class LayoutLandmark(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: UUID
+    room_id: UUID
+    address: str  # "room > landmark", as `find_item` returns `address`
+
+
+class HomeLayout(BaseModel):
+    """The home's rooms, landmarks and which rooms connect (`db.home_layout`), for guidance."""
+
+    model_config = ConfigDict(frozen=True)
+
+    rooms: list[LayoutRoom] = []
+    landmarks: list[LayoutLandmark] = []
+    links: list[tuple[UUID, UUID]] = []
 
 
 class HomeMap(BaseModel):

@@ -3,6 +3,9 @@
     filters -> perception_context (cached 30 s) -> perceive -> drop rules -> observation
             -> per kept item: crop upload, log_sighting -> per landmark in view: mark_absent
 
+Each logged look also asks for its moment photo (the wider view for the FaceTime card,
+`moments.record_soon`); that runs in the background and no frame waits on it.
+
 `ingest()` never raises: whatever goes wrong becomes a status in the result and one log line, and
 the frame is skipped. Nothing is written for a frame from a no-capture room or an unsure room, nor
 for a frame Gemini did not see. Frames are processed concurrently; per-device state (the filters
@@ -19,6 +22,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app import moments
 from app.config import Settings, get_settings
 from app.memory import db
 from app.memory.schema import HomeMap, PerceptionContext
@@ -267,6 +271,9 @@ class Worker:
             )
             if sighting is not None:
                 device.gate.second_look_due = True  # the stay may still be tentative
+            # The wider photo for the FaceTime card (app/moments.py). Not waited on: it is made
+            # and uploaded in the background, so it adds nothing to this frame's time.
+            moments.record_soon(frame, item.box, crop_url, sighting)
         run.lap("sightings")
 
         for address in p.landmarks_in_view:

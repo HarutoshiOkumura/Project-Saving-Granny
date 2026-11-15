@@ -262,3 +262,88 @@ def test_the_client_brings_its_own_http_client(monkeypatch: pytest.MonkeyPatch) 
     assert options.httpx_client is not None
     assert options.httpx_client.timeout.read == db.WRITE_TIMEOUT_S
     monkeypatch.setattr(db, "_client", None)
+
+
+# --- moments: the stays behind the description search and the FaceTime photo --------------------
+
+SIGHTING_ROW = {
+    "id": str(uid(31)),
+    "status": "active",
+    "in_hand": False,
+    "relation": "on",
+    "description": "silver wristwatch on the table surface",
+    "last_seen_at": "2026-11-15T03:26:45.564972+00:00",
+    "crop_url": f"crops/{HOME}/watch/20261115T032645564972Z.jpg",
+    "items": {"name": "watch", "aliases": ["wristwatch"], "color": "silver",
+              "description": "silver wristwatch"},
+    "landmarks": {"spoken_name": "the table"},
+    "rooms": {"spoken_name": "the classroom"},
+}  # fmt: skip
+
+
+def test_list_moments_reads_stays_with_their_names_and_places(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    told = {**SIGHTING_ROW, "id": str(uid(32)), "crop_url": None, "landmarks": None,
+            "description": None}  # fmt: skip
+    fake = use(monkeypatch, FakeClient([SIGHTING_ROW, told]))
+
+    watch, bare = asyncio.run(db.list_moments())
+
+    assert watch.id == uid(31) and watch.item == "watch" and watch.aliases == ["wristwatch"]
+    assert watch.looks == "silver, silver wristwatch"
+    assert watch.note == "silver wristwatch on the table surface"
+    assert (watch.landmark, watch.room, watch.relation) == ("the table", "the classroom", "on")
+    assert watch.photo == SIGHTING_ROW["crop_url"]
+    assert (bare.landmark, bare.note, bare.photo) == (None, None, None)
+    [(table, ops)] = fake.queries
+    assert table == "sightings"
+    assert ("eq", ("home_id", HOME), {}) in ops
+    assert ("filter", ("item_id", "not.is", "null"), {}) in ops  # no unowned detections
+    assert ("order", ("last_seen_at",), {"desc": True}) in ops
+    assert not [op for op in ops if op[0] == "eq" and op[1][0] == "id"]
+
+
+def test_list_moments_can_read_one_stay(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = use(monkeypatch, FakeClient([]))
+
+    assert asyncio.run(db.list_moments(uid(31))) == []
+
+    assert ("eq", ("id", str(uid(31))), {}) in fake.queries[0][1]
+
+
+def test_the_moment_photo_is_stored_beside_its_crop(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = use(monkeypatch, FakeClient())
+    crop_url = f"crops/{HOME}/watch/20261115T032645564972Z.jpg"
+
+    path = asyncio.run(db.upload_moment(crop_url, b"\xff\xd8moment"))
+
+    assert path == f"crops/{HOME}/watch/20261115T032645564972Z.moment.jpg"
+    assert fake.uploads == [
+        ("crops", f"{HOME}/watch/20261115T032645564972Z.moment.jpg", b"\xff\xd8moment",
+         {"content-type": "image/jpeg", "upsert": "true"})
+    ]  # fmt: skip
+
+
+def test_download_photo_gives_the_bytes_or_none_when_there_is_no_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from storage3.exceptions import StorageApiError
+
+    asked: list[tuple[str, str]] = []
+
+    def bucket(name: str) -> SimpleNamespace:
+        async def download(key: str) -> bytes:
+            asked.append((name, key))
+            if key.endswith(".moment.jpg"):
+                raise StorageApiError("Object not found", "not_found", 404)
+            return b"\xff\xd8crop"
+
+        return SimpleNamespace(download=download)
+
+    fake = use(monkeypatch, FakeClient())
+    fake.storage = SimpleNamespace(from_=bucket)
+
+    assert asyncio.run(db.download_photo(f"crops/{HOME}/watch/a.jpg")) == b"\xff\xd8crop"
+    assert asyncio.run(db.download_photo(f"crops/{HOME}/watch/a.moment.jpg")) is None
+    assert asked == [("crops", f"{HOME}/watch/a.jpg"), ("crops", f"{HOME}/watch/a.moment.jpg")]

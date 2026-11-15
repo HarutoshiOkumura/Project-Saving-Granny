@@ -22,7 +22,8 @@ Built from `chert new agent --video --agent save-it` (CLI 0.1.0-beta.20). Line: 
 | `agent.mjs` | Gemini Live voice (D23), Save It persona and voice rules, the five tools, greets on `bridge_ready` |
 | `saveit.mjs` | Tools' read side. `BACKEND_URL` set → HTTP (contract below); empty → `fake-home.mjs`. Keeps per-call `item`, `suggested` place, last `result` and `query_id` |
 | `fake-home.mjs` | Stand-in home from `supabase/seed.example.sql`, returns `rank_item`-shaped JSON (same band and search-order rules) |
-| `card.mjs` | Agent video: 1280×720 card, place name ≤ 2 × 22 chars, 56 px white on dark panel, marker pulses 1 Hz while speaking |
+| `card.mjs` | Agent video: 1280×720 card, place name ≤ 2 × 16 chars, 70 px white on a dark band, marker pulses 1 Hz while speaking. A photo card (15 Nov) fills the frame with the photo of the moment the thing was last seen, a ring on the thing, the place name on a band below |
+| `photo.mjs` | Decodes the backend's card-sized JPEG into pixels for `card.mjs` (sharp, loaded on first use) |
 | `test/` | `npm test`: offline, no paid calls |
 
 Run (two terminals, from `agent/`; a third for the backend when `BACKEND_URL=http://localhost:8000`):
@@ -53,6 +54,17 @@ Measured with spoken questions through LiveKit (first sound after the question e
 | Snapshot in the instructions | 2.6 s | 3.1 s | 3.1 s |
 | Snapshot + Gemini thinking off (default now) | 1.8 s | 1.9 s / 2.4 s | 2.1 s / 2.3 s |
 Without the lookup tool (later the same evening): glasses 2.6 s, bag 2.5 s (said once), pencils (unknown) 1.9 s, watch 3.8 s. Gemini's own time varies run to run, so the median across thinking-off runs is about 2.2 s. Gemini alone, sent the audio directly with no tools, took 1.5 to 3 s. Answers also got shorter: 3.5 to 4.4 s of speech, down from 6.8 to 7.6 s.
+
+### The photo on the card (15 Nov)
+Every answer that says where a thing is now (`state` `seen`, with a `photo`) carries that sighting's id. The agent puts the place card up at once, asks the backend for `/moments/<id>/photo` sized for the card, and swaps the photo in when it arrives (0.6 to 2.1 s measured; up to 12 s allowed). A card that changed meanwhile is not overwritten, and a call keeps its last 6 photos, so asking again shows the photo at once. No photo for "not there anymore" (it would show the place the thing has left) or for a thing in a hand.
+
+The backend decides the picture: `safe` in the request is the part of the card the caller surely sees and no text covers (the width FaceTime keeps, down to the text band), and the whole photo is fitted inside it, never cut. The first version filled the card and zoomed; on the 15 Nov test call that showed about a tenth of the frame, too little of the room. Now the band names the landmark only, on one line when it fits, and the caller sees the whole moment photo: all of the frame's width. The ring breathes once a second for 8 s, then holds still; a thing that takes up more than 40% of the photo gets no ring. The talking and listening light sits in the top right corner on photo cards.
+
+Which picture: the ingest worker stores a wider moment photo beside each look's tight crop (since 15 Nov; `moments.record_soon`), and the card uses it, with the ring. A sighting logged before that, or with `MOMENT_PHOTOS=false`, has only its tight crop, which is shown whole on the dark card without a ring.
+
+With no `APP_TOKEN` in `agent/.env.local`, or a backend without one, the photo request is refused and the card stays on the place name; the call log shows `"tool":"photo","ok":false`.
+
+The card does not use `photo_url` from the snapshot (next section): that is a link to the tight crop, and the card wants the wider moment photo, sized and with the ring's place. Both keep the rule that the agent never holds a Supabase key: the card's picture comes from the backend's `/moments/<id>/photo`, which is never logged with a credential in it.
 
 ### Where to look and the last-seen photo (D33, 15 Nov)
 
@@ -127,6 +139,8 @@ All JSON; `Authorization: Bearer $APP_TOKEN` when set; the agent times out after
 | `POST /told {object_phrase, place_phrase, kind}` | `{say}` | `log_sighting` with `told` + `facetime_caller` (`kind`: `placed` or `found`) | no |
 | `GET /facts?q=<question>` | `{say}` | Typesense `facts`, patient-visible only | no |
 | `POST /alert {reason}` | `{say?}` | dashboard alert | no |
+| `GET /describe?q=<their description>&channel=facetime` | `{sentence, result, item, candidates}` | `moments.describe()`: Typesense hybrid search over the moments, then `ask()` for the one item that fits. `item` null: `sentence` asks which one (several fit) or is `/find`'s answer for those words (none fit) | yes (15 Nov) |
+| `GET /moments/<sighting_id>/photo?w=1280&h=720&safe=l,t,r,b` | JPEG, `w`×`h`; header `X-Item-Circle: x,y,radius` when the thing can be ringed | `moments.card()`: the moment photo (else the tight crop) placed so the thing lands inside `safe`. Needs `APP_TOKEN`; 404 when the sighting has no photo | yes (15 Nov) |
 
 The agent reads `sentence` (or `say`) verbatim. The card shows `suggested`: from `/find`'s `result`, the place it names (`seen`), the room (`carried`: where they went, else where they had it), or the usual place (`never_seen`, `not_there_anymore`); with `rank`, `suggested` or `rank.search_order[0]` (`{landmark_id, room, landmark}`; `/miss` sends its id). An answer with no place clears the card.
 
@@ -187,6 +201,7 @@ Keep per-call state, such as the last suggested landmark, in agent code. Never m
 | `record_placement(object_phrase, place_phrase, kind)` | `kind` is `placed` or `found`. `placed` → `log_sighting` with `told` + `facetime_caller` (trust 0.4). Verbal `found` → the same. Seen on caller video and verified → `confirmed_live` + `facetime_caller` (trust 1.0). |
 | `recall_life_fact(question)` | Typesense `facts` search (`docs/TYPESENSE.md`, D29) |
 | `alert_caregiver(reason)` | dashboard alert |
+| `find_by_description(description)` | Built 15 Nov, backend mode only. They describe a thing instead of naming it, or their answer to "which one?" does not settle it: backend `/describe`. One clear fit returns "They mean their watch." plus `/find`'s sentence and sets the card; otherwise the question or "I don't know it yet" |
 
 The agent reads `speak()`'s sentence **verbatim**. The LLM must never name a place that isn't in the tool result.
 

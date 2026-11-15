@@ -11,14 +11,21 @@
 //   POST /told  { object_phrase, place_phrase, kind } -> { say }                      log_sighting told + facetime_caller (not built)
 //   GET  /facts?q=<question>                         -> { say }                      Typesense facts, patient-visible (not built)
 //   POST /alert { reason }                           -> { say? }                     dashboard alert (not built)
+//   GET  /describe?q=<their description>&channel=facetime -> { sentence, result, item, candidates }
+//        the item those words mean (Typesense over the moments' photos and words), answered like /find
+//   GET  /moments/<sighting_id>/photo?w=&h=&safe=l,t,r,b -> JPEG of that moment, sized for the card;
+//        header X-Item-Circle: x,y,radius says where to ring the thing. Needs APP_TOKEN.
 // While an endpoint is missing (404), its tool answers without it and never claims to have saved anything.
 // `result` is find_item's JSON (FindResult in app/memory/schema.py); `rank` is rank_item's JSON.
 // `suggested` is { room, landmark, landmark_id? }: the place the card shows. The answer is read verbatim.
+// `sighting` is the sighting whose photo goes with the answer (only when it says where the thing is now).
 // Requests send `Authorization: Bearer $APP_TOKEN` when APP_TOKEN is set.
 
 import { fakeRankItem, fakeRecordMiss, fakeTold } from './fake-home.mjs';
 
 const TIMEOUT_MS = 3000;
+const DESCRIBE_TIMEOUT_MS = 6000; // one embedding call and one search behind it
+const PHOTO_TIMEOUT_MS = 12000;   // the photo follows the answer; the place card is up while it loads
 
 // Dropped from the caller's words before /find, which matches item names and aliases exactly: on the 14 Nov
 // test call "where are my glasses" matched nothing. Keep in step with FILLER_WORDS in app/speak.py.
@@ -42,11 +49,11 @@ export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'Jun
   let lastLookup = { item: null, at: 0 }; // one logged lookup per item per exchange, whoever names it first
   const noMorePlaces = () => ({ say: "I'm not sure where else to look right now.", suggested: null });
 
-  async function http(method, path, body) {
+  async function http(method, path, body, timeoutMs = TIMEOUT_MS) {
     const headers = { Accept: 'application/json' };
     if (body) headers['Content-Type'] = 'application/json';
     if (appToken) headers.Authorization = `Bearer ${appToken}`;
-    const res = await fetchImpl(base + path, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const res = await fetchImpl(base + path, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status} from ${path}`), { status: res.status });
     return res.json();
   }
@@ -83,7 +90,7 @@ export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'Jun
       state.suggested = placeOf(state.result);
     }
     state.queryId = state.result?.query_id ?? null;
-    return { say, suggested: state.suggested };
+    return { say, suggested: state.suggested, sighting: photoOf(state.result) };
   }
 
   /** No /miss yet, so nothing is recorded: offer the usual place once, unless they just looked there; then say so. */
@@ -154,6 +161,40 @@ export function createSaveIt({ backendUrl = '', appToken = '', familyName = 'Jun
       if (rank.state === 'unknown_item') state.suggested = null;
       return out;
     }),
+
+    /** find_by_description: they described the thing instead of naming it ("the silver one I wear on my
+     *  wrist"). The backend finds the moment that fits best; one clear fit is answered like find_object and
+     *  the model is told which thing was meant. Otherwise the sentence asks which one, or says it is unknown. */
+    findByDescription: description => timed('find_by_description', async () => {
+      if (mode !== 'backend') return api.findObject(description);
+      const r = await http('GET', `/describe?q=${encodeURIComponent(String(description ?? '').trim())}&channel=facetime`, undefined, DESCRIBE_TIMEOUT_MS);
+      if (typeof r?.sentence !== 'string' || !r.sentence) throw new Error('no sentence in the /describe reply');
+      if (!r.item) return { say: r.sentence, suggested: null }; // unknown, or "which one?": the card points nowhere
+      const out = rememberFind(r);
+      lastLookup = { item: state.item, at: Date.now() }; // the reply will name it; that is not a second question
+      return { ...out, say: `They mean their ${r.item}. ${out.say}` };
+    }),
+
+    /** The photo of a moment, sized for the card: { jpeg, circle } or null. `layout` is card.mjs photoLayout()
+     *  plus the card's size. Never throws: with no photo the place card simply stays. */
+    loadPhoto: async (sighting, { width, height, safe }) => {
+      if (mode !== 'backend' || !sighting) return null;
+      const t0 = Date.now();
+      try {
+        const headers = appToken ? { Authorization: `Bearer ${appToken}` } : {};
+        const path = `/moments/${encodeURIComponent(sighting)}/photo?w=${width}&h=${height}&safe=${safe.join(',')}`;
+        const res = await fetchImpl(base + path, { headers, signal: AbortSignal.timeout(PHOTO_TIMEOUT_MS) });
+        if (!res.ok) throw new Error(`HTTP ${res.status} from /moments/.../photo`);
+        const circle = String(res.headers?.get?.('x-item-circle') ?? '').split(',').map(Number);
+        const jpeg = Buffer.from(await res.arrayBuffer());
+        const ring = circle.length === 3 && circle.every(Number.isFinite);
+        log({ tool: 'photo', mode, ms: Date.now() - t0, ok: true, bytes: jpeg.length, ring });
+        return { jpeg, circle: ring ? circle : null };
+      } catch (err) {
+        log({ tool: 'photo', mode, ms: Date.now() - t0, ok: false, error: String(err?.message ?? err) });
+        return null;
+      }
+    },
 
     /** report_not_there: the suggested place was empty. Records the miss and gives the next place.
      *  `thing` (optional) names the item, for when the model answered from the snapshot. */
@@ -250,6 +291,12 @@ export function placeOf(result) {
     default:
       return null;
   }
+}
+
+/** The sighting whose photo goes with an answer: only when the answer says where the thing is now. A photo
+ *  of a place it has left ("not there anymore"), or of it in a hand, would send them the wrong way. */
+export function photoOf(result) {
+  return result?.state === 'seen' && result.photo && result.sighting_id ? result.sighting_id : null;
 }
 
 const missing = err => err?.status === 404 || err?.status === 405;
