@@ -111,6 +111,9 @@ This is documented in `CLI_GUIDE`.
 - The LiveKit key and secret stay on this machine. Chert gets a token for one room, valid for at most 2 h.
 
 ## Video
+
+**Caller video is blocked in four places as of 15 Nov (D33 in `docs/DECISIONS.md`):** `AutoSubscribe.AUDIO_ONLY` (`agent.mjs:70`), `videoEnabled: false` (`agent.mjs:208`), the Gemini plugin's empty `pushVideo` (1.8.0 to 1.10.0), and the prompt; Chert's caller capture on our line is unverified. D33 has the 15-minute check and the arrow design (`POST /locate`, echo the caller's view with an overlay).
+
 - Calls carry `media: {audio, video}`. Lines report `supports_audio` and `supports_video`. Call events include `remote_video_ready`, `remote_video_unavailable` and `caller_video_published`.
 - Requesting video doesn't guarantee it: check the line's `supports_video` and the call's `media_status`.
 - **Our agent shows video only by publishing a camera track from the agent.** The video starter already does this. Replace the drawn face with our card: the place name in big text plus the last-seen crop (sizes and colours in `docs/DASHBOARD.md`).
