@@ -1,4 +1,4 @@
-# Find It
+# Find It - Emory Hacks 2026 
 
 A person living with dementia FaceTimes Find It and asks "Where are my glasses?".
 A phone worn on a lanyard sees where things are put down, a database remembers each place, and the agent answers out loud with the place and a photo.
