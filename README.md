@@ -4,7 +4,7 @@ A person living with dementia FaceTimes Find It and asks "Where are my glasses?"
 A phone worn on a lanyard sees where things are put down, a database remembers each place, and the agent answers out loud with the place and a photo.
 The family gets a dashboard: where everything is, alerts, and how the days are going.
 
-[![Watch the demo](https://img.youtube.com/vi/dDo-NCyA80o/maxresdefault.jpg)]([https://www.youtube.com/watch?v=VIDEO_ID](https://www.youtube.com/watch?v=dDo-NCyA80o))
+[![Watch the demo](https://img.youtube.com/vi/dDo-NCyA80o/maxresdefault.jpg)](https://www.youtube.com/watch?v=dDo-NCyA80o)
 
 Built at Emory Hacks 2026.
 
